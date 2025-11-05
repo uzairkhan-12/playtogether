@@ -2,6 +2,18 @@ import cloudinary from "../config/cloudinary.js";
 import Video from "../Models/Video.js";
 import multer from "multer";
 import { CloudinaryStorage } from "multer-storage-cloudinary";
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegPath from '@ffmpeg-installer/ffmpeg';
+import { promisify } from 'util';
+import { createReadStream, unlinkSync, existsSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
+// Set ffmpeg path
+ffmpeg.setFfmpegPath(ffmpegPath.path);
+
+// Promisify ffmpeg functions
+const ffprobeAsync = promisify(ffmpeg.ffprobe);
 
 // Configure Cloudinary storage for multer
 const storage = new CloudinaryStorage({
@@ -17,7 +29,14 @@ const storage = new CloudinaryStorage({
     // Add chunk size for large files
     chunk_size: 6000000, // 6MB chunks for large file uploads
     eager: [
-      { quality: "auto:good" }, // Generate optimized version
+      { 
+        quality: "auto:good",
+        format: "jpg",
+        transformation: [
+          { width: 300, height: 200, crop: "fill" },
+          { quality: "auto" }
+        ]
+      }, // Generate thumbnail
     ],
     eager_async: true // Process transformations asynchronously
   }
@@ -42,6 +61,36 @@ export const upload = multer({
   }
 });
 
+// Function to get video duration using ffmpeg
+const getVideoDuration = async (filePath) => {
+  try {
+    const metadata = await ffprobeAsync(filePath);
+    return metadata.format.duration;
+  } catch (error) {
+    console.error('Error getting video duration:', error);
+    throw new Error('Could not extract video duration');
+  }
+};
+
+// Function to generate thumbnail using ffmpeg
+const generateThumbnail = async (filePath, outputPath, timeInSeconds = 1) => {
+  return new Promise((resolve, reject) => {
+    ffmpeg(filePath)
+      .screenshots({
+        timestamps: [timeInSeconds],
+        filename: 'thumbnail.jpg',
+        folder: outputPath,
+        size: '300x200'
+      })
+      .on('end', () => {
+        resolve(join(outputPath, 'thumbnail.jpg'));
+      })
+      .on('error', (error) => {
+        reject(error);
+      });
+  });
+};
+
 // @desc    Upload a video
 // @route   POST /api/videos/upload
 // @access  Private (Parent only)
@@ -54,7 +103,7 @@ export const uploadVideo = async (req, res) => {
       });
     }
 
-    const { title, description } = req.body;
+    const { title, description, duration } = req.body;
 
     if (!title) {
       // Delete uploaded file from Cloudinary if validation fails
@@ -77,46 +126,125 @@ export const uploadVideo = async (req, res) => {
       originalname: req.file.originalname
     });
 
-    // Extract public_id from filename (format: "playtogether-videos/fygbarhwcz8rxvhvijoi")
     const publicId = req.file.filename;
 
-    // Get video metadata from Cloudinary response
+    // Get video duration - use provided duration or extract from Cloudinary
+    let videoDuration = parseInt(duration) || 0;
+    let thumbnailUrl = null;
+
+    // If no duration provided, try to get from Cloudinary
+    if (!videoDuration) {
+      try {
+        // Wait a bit for Cloudinary processing
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        const cloudinaryDetails = await cloudinary.api.resource(publicId, { 
+          resource_type: "video" 
+        });
+        
+        if (cloudinaryDetails.duration) {
+          videoDuration = Math.round(cloudinaryDetails.duration);
+          console.log('Duration from Cloudinary:', videoDuration);
+        }
+      } catch (cloudinaryError) {
+        console.log("Could not fetch video details from Cloudinary:", cloudinaryError.message);
+        // Duration will remain 0 and can be updated later
+      }
+    }
+
+    // Generate thumbnail URL using Cloudinary transformation
+    try {
+      thumbnailUrl = cloudinary.url(publicId, {
+        resource_type: "video",
+        secure: true, // Use HTTPS URLs
+        format: "jpg", // Explicitly set format
+        transformation: [
+          { width: 300, height: 200, crop: "fill" },
+          { quality: "auto" }
+        ]
+      });
+      console.log('Generated thumbnail URL:', thumbnailUrl);
+    } catch (thumbnailError) {
+      console.error('Error generating thumbnail URL:', thumbnailError);
+    }
+
+    // Prepare video data
     const videoData = {
-      title,
-      description: description || "",
+      title: title.trim(),
+      description: (description || "").trim(),
       cloudinaryUrl: req.file.path,
       cloudinaryPublicId: publicId,
-      duration: 0, // Will be updated later when Cloudinary processes the video
+      duration: videoDuration,
+      thumbnailUrl: thumbnailUrl,
       fileSize: req.file.size || 0,
       format: req.file.originalname.split('.').pop().toLowerCase() || "mp4",
-      uploadedBy: req.user.id
+      uploadedBy: req.user.id,
+      uploadStatus: videoDuration > 0 ? "completed" : "processing",
+      metadataExtracted: videoDuration > 0,
+      thumbnailGenerated: !!thumbnailUrl
     };
 
     // Save video info to database
     const video = await Video.create(videoData);
 
-    // Optionally, get more detailed video info from Cloudinary
-    try {
-      const cloudinaryDetails = await cloudinary.api.resource(publicId, { resource_type: "video" });
-      if (cloudinaryDetails.duration) {
-        video.duration = cloudinaryDetails.duration;
-        await video.save();
-      }
-    } catch (detailError) {
-      console.log("Could not fetch video details from Cloudinary:", detailError.message);
-      // This is not critical, continue without duration
+    // If duration is still 0, set up a background job to update it later
+    if (!videoDuration) {
+      setTimeout(async () => {
+        try {
+          const cloudinaryDetails = await cloudinary.api.resource(publicId, { 
+            resource_type: "video" 
+          });
+          
+          if (cloudinaryDetails.duration) {
+            await Video.findByIdAndUpdate(video._id, {
+              duration: Math.round(cloudinaryDetails.duration),
+              uploadStatus: "completed",
+              metadataExtracted: true
+            });
+            console.log(`Updated duration for video ${video._id}: ${cloudinaryDetails.duration}`);
+          }
+        } catch (error) {
+          console.error(`Failed to update duration for video ${video._id}:`, error);
+        }
+      }, 10000); // Wait 10 seconds then try again
     }
 
     res.status(201).json({
       success: true,
       message: "Video uploaded successfully",
-      data: { video }
+      data: { 
+        video: {
+          _id: video._id,
+          title: video.title,
+          description: video.description,
+          cloudinaryUrl: video.cloudinaryUrl,
+          duration: video.duration,
+          thumbnailUrl: video.thumbnailUrl,
+          fileSize: video.fileSize,
+          format: video.format,
+          uploadStatus: video.uploadStatus,
+          playCount: video.playCount,
+          uploadedBy: video.uploadedBy,
+          createdAt: video.createdAt,
+          updatedAt: video.updatedAt
+        }
+      }
     });
 
   } catch (error) {
     console.error("Upload video error:", error);
     
-    // Handle connection reset errors
+    // Clean up: Delete file from Cloudinary if database save fails
+    if (req.file?.filename) {
+      try {
+        await cloudinary.uploader.destroy(req.file.filename, { resource_type: "video" });
+        console.log("Cleaned up failed upload from Cloudinary");
+      } catch (cleanupError) {
+        console.error("Error cleaning up Cloudinary file:", cleanupError);
+      }
+    }
+
+    // Handle specific errors
     if (error.code === 'ECONNRESET' || error.code === 'ECONNABORTED') {
       return res.status(408).json({
         success: false,
@@ -125,7 +253,6 @@ export const uploadVideo = async (req, res) => {
       });
     }
     
-    // Handle specific Cloudinary errors
     if (error.http_code === 413) {
       return res.status(413).json({
         success: false,
@@ -141,21 +268,21 @@ export const uploadVideo = async (req, res) => {
         error: "CLOUDINARY_UPLOAD_ERROR"
       });
     }
-    
-    // Clean up: Delete file from Cloudinary if database save fails
-    if (req.file?.filename) {
-      try {
-        await cloudinary.uploader.destroy(req.file.filename, { resource_type: "video" });
-        console.log("Cleaned up failed upload from Cloudinary");
-      } catch (cleanupError) {
-        console.error("Error cleaning up Cloudinary file:", cleanupError);
-      }
+
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      const errors = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: "Validation error",
+        errors: errors
+      });
     }
 
     res.status(500).json({
       success: false,
       message: "Server error during video upload",
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message
     });
   }
 };
@@ -187,10 +314,56 @@ export const getVideos = async (req, res) => {
       .populate("uploadedBy", "name email")
       .sort({ createdAt: -1 });
 
+    // Ensure all videos have duration and thumbnail
+    const videosWithMetadata = await Promise.all(
+      videos.map(async (video) => {
+        // If video doesn't have duration, try to get it from Cloudinary
+        if (!video.duration || video.duration === 0) {
+          try {
+            const cloudinaryDetails = await cloudinary.api.resource(
+              video.cloudinaryPublicId, 
+              { resource_type: "video" }
+            );
+            
+            if (cloudinaryDetails.duration) {
+              video.duration = Math.round(cloudinaryDetails.duration);
+              await video.save();
+            }
+          } catch (error) {
+            console.log(`Could not update duration for video ${video._id}:`, error.message);
+          }
+        }
+
+        // If video doesn't have thumbnail, try to generate one
+        if (!video.thumbnailUrl) {
+          try {
+            // Generate thumbnail URL using Cloudinary transformation
+            const publicId = video.cloudinaryPublicId;
+            const thumbnailUrl = cloudinary.url(publicId, {
+              resource_type: "video",
+              secure: true, // Use HTTPS URLs
+              format: "jpg", // Explicitly set format
+              transformation: [
+                { width: 300, height: 200, crop: "fill" },
+                { quality: "auto" }
+              ]
+            });
+            
+            video.thumbnailUrl = thumbnailUrl;
+            await video.save();
+          } catch (error) {
+            console.log(`Could not generate thumbnail for video ${video._id}:`, error.message);
+          }
+        }
+
+        return video;
+      })
+    );
+
     res.status(200).json({
       success: true,
-      count: videos.length,
-      data: { videos }
+      count: videosWithMetadata.length,
+      data: { videos: videosWithMetadata }
     });
 
   } catch (error) {
@@ -198,6 +371,88 @@ export const getVideos = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server error getting videos",
+      error: error.message
+    });
+  }
+};
+
+// @desc    Update video duration and thumbnail (for existing videos)
+// @route   POST /api/videos/:id/update-metadata
+// @access  Private
+export const updateVideoMetadata = async (req, res) => {
+  try {
+    const video = await Video.findById(req.params.id);
+
+    if (!video) {
+      return res.status(404).json({
+        success: false,
+        message: "Video not found"
+      });
+    }
+
+    // Check authorization
+    if (req.user.role === "parent" && video.uploadedBy.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied"
+      });
+    }
+
+    let updated = false;
+
+    // Update duration if missing
+    if (!video.duration || video.duration === 0) {
+      try {
+        const cloudinaryDetails = await cloudinary.api.resource(
+          video.cloudinaryPublicId, 
+          { resource_type: "video" }
+        );
+        
+        if (cloudinaryDetails.duration) {
+          video.duration = Math.round(cloudinaryDetails.duration);
+          updated = true;
+        }
+      } catch (error) {
+        console.log(`Could not update duration for video ${video._id}:`, error.message);
+      }
+    }
+
+    // Update thumbnail if missing
+    if (!video.thumbnailUrl) {
+      try {
+        const publicId = video.cloudinaryPublicId;
+        const thumbnailUrl = cloudinary.url(publicId, {
+          resource_type: "video",
+          secure: true, // Use HTTPS URLs
+          format: "jpg", // Explicitly set format
+          transformation: [
+            { width: 300, height: 200, crop: "fill" },
+            { quality: "auto" }
+          ]
+        });
+        
+        video.thumbnailUrl = thumbnailUrl;
+        updated = true;
+      } catch (error) {
+        console.log(`Could not generate thumbnail for video ${video._id}:`, error.message);
+      }
+    }
+
+    if (updated) {
+      await video.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Video metadata updated successfully",
+      data: { video }
+    });
+
+  } catch (error) {
+    console.error("Update video metadata error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error updating video metadata",
       error: error.message
     });
   }
@@ -231,6 +486,49 @@ export const getVideo = async (req, res) => {
         success: false,
         message: "Access denied"
       });
+    }
+
+    // Ensure video has duration and thumbnail
+    let updated = false;
+    
+    if (!video.duration || video.duration === 0) {
+      try {
+        const cloudinaryDetails = await cloudinary.api.resource(
+          video.cloudinaryPublicId, 
+          { resource_type: "video" }
+        );
+        
+        if (cloudinaryDetails.duration) {
+          video.duration = Math.round(cloudinaryDetails.duration);
+          updated = true;
+        }
+      } catch (error) {
+        console.log(`Could not update duration for video ${video._id}:`, error.message);
+      }
+    }
+
+    if (!video.thumbnailUrl) {
+      try {
+        const publicId = video.cloudinaryPublicId;
+        const thumbnailUrl = cloudinary.url(publicId, {
+          resource_type: "video",
+          secure: true, // Use HTTPS URLs
+          format: "jpg", // Explicitly set format
+          transformation: [
+            { width: 300, height: 200, crop: "fill" },
+            { quality: "auto" }
+          ]
+        });
+        
+        video.thumbnailUrl = thumbnailUrl;
+        updated = true;
+      } catch (error) {
+        console.log(`Could not generate thumbnail for video ${video._id}:`, error.message);
+      }
+    }
+
+    if (updated) {
+      await video.save();
     }
 
     res.status(200).json({
@@ -391,5 +689,50 @@ export const playVideo = async (req, res) => {
       message: "Server error updating play count",
       error: error.message
     });
+  }
+};
+
+// @desc    Process Cloudinary webhook for video upload completion
+// @route   POST /api/videos/webhook/cloudinary
+// @access  Public (called by Cloudinary)
+export const cloudinaryWebhook = async (req, res) => {
+  try {
+    const { notification_type, response } = req.body;
+
+    if (notification_type === 'eager_processing_completed') {
+      const publicId = response.public_id;
+      
+      // Find video by Cloudinary public ID
+      const video = await Video.findOne({ cloudinaryPublicId: publicId });
+      
+      if (video) {
+        let updated = false;
+
+        // Update duration if available
+        if (response.duration && (!video.duration || video.duration === 0)) {
+          video.duration = Math.round(response.duration);
+          updated = true;
+        }
+
+        // Update thumbnail if eager transformation completed
+        if (response.derived && response.derived.length > 0) {
+          const thumbnailUrl = response.derived[0].secure_url;
+          if (!video.thumbnailUrl) {
+            video.thumbnailUrl = thumbnailUrl;
+            updated = true;
+          }
+        }
+
+        if (updated) {
+          await video.save();
+          console.log(`Updated video metadata via webhook: ${video._id}`);
+        }
+      }
+    }
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Cloudinary webhook error:', error);
+    res.status(500).json({ success: false });
   }
 };
