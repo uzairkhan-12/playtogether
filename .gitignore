@@ -1,0 +1,339 @@
+# ===================================
+# PlayTogether Project - GitIgnore
+# ===================================
+
+# ===================================
+# BACKEND (Node.js/Express) - /server
+# ===================================
+
+# Dependencies
+server/node_modules/
+server/npm-debug.log*
+server/yarn-debug.log*
+server/yarn-error.log*
+
+# Environment variables
+server/.env
+server/.env.local
+server/.env.development.local
+server/.env.test.local
+server/.env.production.local
+
+# Logs
+server/logs/
+server/*.log
+server/npm-debug.log*
+server/yarn-debug.log*
+server/yarn-error.log*
+server/lerna-debug.log*
+
+# Runtime data
+server/pids/
+server/*.pid
+server/*.seed
+server/*.pid.lock
+
+# Coverage directory used by tools like istanbul
+server/coverage/
+server/.nyc_output/
+
+# Grunt intermediate storage
+server/.grunt/
+
+# Bower dependency directory
+server/bower_components/
+
+# node-waf configuration
+server/.lock-wscript
+
+# Compiled binary addons
+server/build/Release/
+
+# Dependency directories
+server/jspm_packages/
+
+# TypeScript cache
+server/*.tsbuildinfo
+
+# Optional npm cache directory
+server/.npm/
+
+# Optional eslint cache
+server/.eslintcache
+
+# Microbundle cache
+server/.rpt2_cache/
+server/.rts2_cache_cjs/
+server/.rts2_cache_es/
+server/.rts2_cache_umd/
+
+# Optional REPL history
+server/.node_repl_history
+
+# Output of 'npm pack'
+server/*.tgz
+
+# Yarn Integrity file
+server/.yarn-integrity
+
+# parcel-bundler cache
+server/.cache/
+server/.parcel-cache/
+
+# Next.js build output
+server/.next/
+
+# Nuxt.js build / generate output
+server/.nuxt/
+server/dist/
+
+# Gatsby files
+server/.cache/
+server/public/
+
+# Storybook build outputs
+server/.out/
+server/.storybook-out/
+
+# Temporary folders
+server/tmp/
+server/temp/
+
+# ===================================
+# FRONTEND (React Native/Expo) - /app
+# ===================================
+
+# Expo
+app/.expo/
+app/.expo-shared/
+app/dist/
+app/web-build/
+
+# Dependencies
+app/node_modules/
+app/npm-debug.log*
+app/yarn-debug.log*
+app/yarn-error.log*
+
+# Environment variables
+app/.env
+app/.env.local
+app/.env.development.local
+app/.env.test.local
+app/.env.production.local
+
+# Expo
+app/expo-env.d.ts
+
+# Metro
+app/.metro-health-check*
+
+# Local Expo CLI state
+app/.expo-shared/
+
+# macOS
+app/.DS_Store
+.DS_Store
+
+# Node
+app/npm-debug.log*
+app/yarn-debug.log*
+app/yarn-error.log*
+
+# Bundle artifacts
+app/*.jsbundle
+
+# CocoaPods
+app/ios/Pods/
+
+# Temporary files created by Metro to check the health of the file watcher
+app/.metro-health-check*
+
+# Xcode
+app/ios/**/*.mode1v3
+app/ios/**/*.mode2v3
+app/ios/**/*.moved-aside
+app/ios/**/*.pbxuser
+app/ios/**/*.perspectivev3
+app/ios/**/*sync/
+app/ios/**/.sconsign.dblite
+app/ios/**/.tags*
+app/ios/**/.vagrant/
+app/ios/**/DerivedData/
+app/ios/**/Icon?
+app/ios/**/Pods/
+app/ios/**/.xcode.env.local
+
+# Android
+app/android/**/build/
+app/android/**/local.properties
+app/android/**/com_crashlytics_export_strings.xml
+app/android/**/crashlytics.properties
+app/android/**/crashlytics-build.properties
+app/android/**/fabric.properties
+app/android/.gradle/
+app/android/captures/
+app/android/gradlew
+app/android/gradlew.bat
+app/android/local.properties
+app/android/*.iml
+app/android/.gradle/
+app/android/.idea/
+app/android/build/
+
+# Fastlane
+app/**/fastlane/report.xml
+app/**/fastlane/Preview.html
+
+# Bundle artifacts
+app/*.jsbundle
+
+# TypeScript
+app/*.tsbuildinfo
+
+# VS Code
+app/.vscode/
+
+# ===================================
+# GENERAL (Root Level)
+# ===================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Icon must end with two \r
+Icon
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Directories potentially created on remote AFP share
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.tmp
+*.temp
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+.nyc_output/
+
+# Environment variables (global)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Temporary folders
+tmp/
+temp/
+.tmp/
+.temp/
+
+# Cache directories
+.cache/
+.npm/
+.yarn/
+
+# Build outputs
+build/
+dist/
+out/
+
+# Dependency directories
+node_modules/
+
+# Optional packages
+package-lock.json
+yarn.lock
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.backup
+*.bak
+*.old
+
+# Archive files
+*.zip
+*.tar.gz
+*.rar
+
+# Keys and certificates
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Upload directories
+uploads/
+public/uploads/
+
+# Media files (if too large)
+*.mp4
+*.avi
+*.mov
+*.wmv
+*.flv
+*.webm
+
+# Development files
+.eslintcache
+.prettierignore
+.stylelintignore
