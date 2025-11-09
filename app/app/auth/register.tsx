@@ -51,7 +51,12 @@ export default function RegisterScreen() {
       const result = await register(name, email, password, role);
       
       if (result.success) {
-        router.replace('/(tabs)');
+        // Redirect to appropriate pairing screen based on role
+        if (role === 'parent') {
+          router.replace('/auth/parent-pairing');
+        } else {
+          router.replace('/auth/child-pairing');
+        }
       } else {
         Alert.alert('Registration Failed', result.message || 'Registration failed');
       }

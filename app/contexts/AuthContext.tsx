@@ -4,7 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 
 // API configuration
-const API_BASE_URL = 'http://192.168.100.219:8888/api';
+const API_BASE_URL = 'http://192.168.100.216:8888/api';
 
 // Types
 interface User {
@@ -24,6 +24,7 @@ interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  hasLoggedInBefore: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; user?: User; message?: string }>;
   register: (name: string, email: string, password: string, role?: 'parent' | 'child') => Promise<{ success: boolean; user?: User; message?: string }>;
   logout: () => Promise<void>;
@@ -44,6 +45,7 @@ const AuthContext = createContext<AuthContextType>({
   token: null,
   isLoading: true,
   isAuthenticated: false,
+  hasLoggedInBefore: false,
   login: async () => ({ success: false }),
   register: async () => ({ success: false }),
   logout: async () => {},
@@ -68,6 +70,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasLoggedInBefore, setHasLoggedInBefore] = useState(false);
 
   useEffect(() => {
     checkAuthState();
@@ -78,6 +81,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       const savedToken = await SecureStore.getItemAsync('authToken');
       const userData = await AsyncStorage.getItem('userData');
+      const hasLoggedBefore = await AsyncStorage.getItem('hasLoggedInBefore');
+      
+      if (hasLoggedBefore === 'true') {
+        setHasLoggedInBefore(true);
+        console.log('📝 AuthContext: User has logged in before');
+      }
       
       if (savedToken && userData) {
         const parsedUser: User = JSON.parse(userData);
@@ -112,13 +121,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // Save to secure storage
         await SecureStore.setItemAsync('authToken', token);
         await AsyncStorage.setItem('userData', JSON.stringify(user));
+        await AsyncStorage.setItem('hasLoggedInBefore', 'true');
         
         // Update state
         setToken(token);
         setUser(user);
+        setHasLoggedInBefore(true);
         
         // Set authorization header
         api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        
+        console.log('✅ Login successful, socket will reconnect with user data');
         
         return { success: true, user };
       }
@@ -260,6 +273,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       token,
       isLoading,
       isAuthenticated,
+      hasLoggedInBefore,
       login,
       register,
       logout,

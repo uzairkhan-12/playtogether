@@ -52,6 +52,9 @@ export const handleConnection = (io) => {
     // Handle pairing and room joining
     handlePairing(socket, io);
 
+    // Enhanced presence events
+    setupPresenceEvents(socket, io);
+
     // Video control events
     setupVideoControlEvents(socket, io);
 
@@ -65,6 +68,135 @@ export const handleConnection = (io) => {
   };
 };
 
+// Enhanced presence events for real-time status updates
+const setupPresenceEvents = (socket, io) => {
+  const user = socket.user;
+
+  // Handle room joining with immediate presence announcement
+  socket.on("join_room", (data) => {
+    console.log(`🏠 ${user.role} ${user.name} joining room with data:`, data);
+    
+    if (user.role === "parent" && user.pairedWith) {
+      const roomId = `family_${user._id}`;
+      socket.join(roomId);
+      console.log(`👨‍👩‍👧‍👦 Parent ${user.name} joined room: ${roomId}`);
+    } else if (user.role === "child" && user.pairedWith) {
+      const roomId = `family_${user.pairedWith}`;
+      socket.join(roomId);
+      console.log(`👶 Child ${user.name} joined room: ${roomId}`);
+    }
+  });
+
+  // Handle user coming online
+  socket.on("user_online", (data) => {
+    console.log(`📡 ${user.role} ${user.name} announcing online status:`, data);
+    
+    if (user.pairedWith) {
+      const pairedConnection = activeConnections.get(user.pairedWith.toString());
+      if (pairedConnection) {
+        if (user.role === "parent") {
+          io.to(pairedConnection.socketId).emit("parent_online", {
+            message: "Parent is now online",
+            userName: user.name,
+            userId: user._id,
+            onlineAt: new Date()
+          });
+        } else {
+          io.to(pairedConnection.socketId).emit("child_online", {
+            message: "Child is now online",
+            userName: user.name,
+            userId: user._id,
+            onlineAt: new Date()
+          });
+        }
+        
+        socket.emit("presence_confirmed", {
+          message: "Your presence has been announced to paired device",
+          pairedDevicesOnline: 1,
+          totalPairedDevices: 1
+        });
+        console.log(`✅ Sent ${user.role}_online to paired device`);
+      } else {
+        socket.emit("presence_confirmed", {
+          message: "Paired device is currently offline",
+          pairedDevicesOnline: 0,
+          totalPairedDevices: 1
+        });
+      }
+    } else {
+      console.log(`❌ No paired device found for ${user.role} ${user.name}`);
+      socket.emit("presence_confirmed", {
+        message: "No paired device found",
+        pairedDevicesOnline: 0,
+        totalPairedDevices: 0
+      });
+    }
+  });
+
+  // Handle user going offline
+  socket.on("user_offline", (data) => {
+    console.log(`📴 ${user.role} ${user.name} announcing offline status:`, data);
+    
+    if (user.pairedWith) {
+      const pairedConnection = activeConnections.get(user.pairedWith.toString());
+      if (pairedConnection) {
+        if (user.role === "parent") {
+          io.to(pairedConnection.socketId).emit("parent_offline", {
+            message: "Parent is now offline",
+            userName: user.name,
+            userId: user._id,
+            offlineAt: new Date()
+          });
+        } else {
+          io.to(pairedConnection.socketId).emit("child_offline", {
+            message: "Child is now offline",
+            userName: user.name,
+            userId: user._id,
+            offlineAt: new Date()
+          });
+        }
+        console.log(`📴 Sent ${user.role}_offline to paired device`);
+      }
+    }
+  });
+
+  // Handle successful pairing notification
+  socket.on("child_paired_success", (data) => {
+    console.log(`🎉 Child ${user.name} successfully paired with code:`, data.pairingCode);
+    
+    if (user.pairedWith) {
+      const parentConnection = activeConnections.get(user.pairedWith.toString());
+      if (parentConnection) {
+        // Notify parent of successful pairing
+        io.to(parentConnection.socketId).emit("pairing_success", {
+          message: "Child successfully paired!",
+          childName: user.name,
+          childId: user._id,
+          pairingCode: data.pairingCode,
+          pairedAt: new Date()
+        });
+        
+        // Immediately notify both devices about each other's online status
+        io.to(parentConnection.socketId).emit("child_online", {
+          message: "Child is now online",
+          userName: user.name,
+          userId: user._id,
+          onlineAt: new Date()
+        });
+        
+        socket.emit("parent_online", {
+          message: "Parent is now online",
+          userName: parentConnection.user.name,
+          userId: parentConnection.user._id,
+          onlineAt: new Date()
+        });
+        
+        console.log(`🎉 Sent pairing_success and online status updates to both devices`);
+      }
+    }
+  });
+};
+
 // Handle parent-child pairing and room management
 const handlePairing = (socket, io) => {
   const user = socket.user;
@@ -76,13 +208,25 @@ const handlePairing = (socket, io) => {
     
     console.log(`👨‍👩‍👧‍👦 Parent ${user.name} joined room: ${roomId}`);
     
-    // Notify child if connected
+    // Notify paired child if connected
     const childConnection = activeConnections.get(user.pairedWith.toString());
     if (childConnection) {
-      io.to(childConnection.socketId).emit("parent_connected", {
+      io.to(childConnection.socketId).emit("parent_online", {
         message: "Parent is now online",
-        parentName: user.name
+        userName: user.name,
+        userId: user._id,
+        onlineAt: new Date()
       });
+      
+      // Also notify the parent that child is online
+      socket.emit("child_online", {
+        message: "Child is now online",
+        userName: childConnection.user.name,
+        userId: childConnection.user._id,
+        onlineAt: new Date()
+      });
+      
+      console.log(`✅ Sent mutual online status updates between parent and child`);
     }
     
     // Store room mapping
@@ -98,10 +242,22 @@ const handlePairing = (socket, io) => {
     // Notify parent if connected
     const parentConnection = activeConnections.get(user.pairedWith.toString());
     if (parentConnection) {
-      io.to(parentConnection.socketId).emit("child_connected", {
+      io.to(parentConnection.socketId).emit("child_online", {
         message: "Child is now online",
-        childName: user.name
+        userName: user.name,
+        userId: user._id,
+        onlineAt: new Date()
       });
+      
+      // Also notify the child that parent is online
+      socket.emit("parent_online", {
+        message: "Parent is now online",
+        userName: parentConnection.user.name,
+        userId: parentConnection.user._id,
+        onlineAt: new Date()
+      });
+      
+      console.log(`✅ Sent mutual online status updates between child and parent`);
     }
   }
 };
@@ -283,16 +439,17 @@ const setupVideoControlEvents = (socket, io) => {
     socket.on("video_control_ack", (data) => {
       const { action, videoId, status } = data;
       
-      // Find parent connection
-      const parentConnection = activeConnections.get(user.pairedWith.toString());
-      if (parentConnection) {
-        io.to(parentConnection.socketId).emit("child_status", {
-          action,
-          videoId,
-          status,
-          childName: user.name,
-          timestamp: new Date()
-        });
+      if (user.pairedWith) {
+        const parentConnection = activeConnections.get(user.pairedWith.toString());
+        if (parentConnection) {
+          io.to(parentConnection.socketId).emit("child_status", {
+            action,
+            videoId,
+            status,
+            childName: user.name,
+            timestamp: new Date()
+          });
+        }
       }
     });
 
@@ -300,16 +457,18 @@ const setupVideoControlEvents = (socket, io) => {
     socket.on("playback_status", (data) => {
       const { videoId, currentTime, isPlaying, volume } = data;
       
-      const parentConnection = activeConnections.get(user.pairedWith.toString());
-      if (parentConnection) {
-        io.to(parentConnection.socketId).emit("child_playback_status", {
-          videoId,
-          currentTime,
-          isPlaying,
-          volume,
-          childName: user.name,
-          timestamp: new Date()
-        });
+      if (user.pairedWith) {
+        const parentConnection = activeConnections.get(user.pairedWith.toString());
+        if (parentConnection) {
+          io.to(parentConnection.socketId).emit("child_playback_status", {
+            videoId,
+            currentTime,
+            isPlaying,
+            volume,
+            childName: user.name,
+            timestamp: new Date()
+          });
+        }
       }
     });
   }
@@ -358,12 +517,22 @@ const handleDisconnection = (socket, io) => {
   if (user.pairedWith) {
     const pairedConnection = activeConnections.get(user.pairedWith.toString());
     if (pairedConnection) {
-      const eventName = user.role === "parent" ? "parent_disconnected" : "child_disconnected";
-      io.to(pairedConnection.socketId).emit(eventName, {
-        message: `${user.role} is now offline`,
-        userName: user.name,
-        disconnectedAt: new Date()
-      });
+      if (user.role === "parent") {
+        io.to(pairedConnection.socketId).emit("parent_offline", {
+          message: "Parent is now offline",
+          userName: user.name,
+          userId: user._id,
+          offlineAt: new Date()
+        });
+      } else {
+        io.to(pairedConnection.socketId).emit("child_offline", {
+          message: "Child is now offline",
+          userName: user.name,
+          userId: user._id,
+          offlineAt: new Date()
+        });
+      }
+      console.log(`📴 Sent ${user.role}_offline to paired device on disconnect`);
     }
   }
 

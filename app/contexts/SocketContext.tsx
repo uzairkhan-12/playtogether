@@ -54,6 +54,8 @@ interface SocketContextType {
   // Connection methods
   connect: () => void;
   disconnect: () => void;
+  reconnect: () => void;
+  announcePresence: () => void;
 }
 
 const SocketContext = createContext<SocketContextType>({
@@ -78,7 +80,9 @@ const SocketContext = createContext<SocketContextType>({
   onParentConnected: () => {},
   onChildConnected: () => {},
   connect: () => {},
-  disconnect: () => {}
+  disconnect: () => {},
+  reconnect: () => {},
+  announcePresence: () => {}
 });
 
 export const useSocket = () => {
@@ -114,14 +118,35 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     };
   }, [isAuthenticated, token, user]);
 
+  // Separate effect for delayed presence announcement after login
+  useEffect(() => {
+    if (socket && socket.connected && user?.pairedWith && isAuthenticated) {
+      const timer = setTimeout(() => {
+        console.log('🔄 Additional presence announcement after login');
+        if (socket.connected) {
+          socket.emit('user_online', { 
+            userId: user._id, 
+            role: user.role, 
+            pairedWith: user.pairedWith 
+          });
+        }
+      }, 3000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [socket?.connected, user?.pairedWith, isAuthenticated]);
+
   const connect = () => {
     if (socket) {
       socket.disconnect();
     }
 
-    const newSocket = io('http://192.168.100.219:8888', {
+    const newSocket = io('http://192.168.100.216:8888', {
       auth: {
-        token: token
+        token: token,
+        userId: user?._id,
+        role: user?.role,
+        pairedWith: user?.pairedWith
       },
       transports: ['websocket', 'polling']
     });
@@ -130,10 +155,56 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     newSocket.on('connect', () => {
       console.log('🔌 Socket connected:', newSocket.id);
       setConnectionStatus(prev => ({ ...prev, isConnected: true, error: undefined }));
+      
+      // Immediately join appropriate room and announce presence
+      if (user?.role && user?.pairedWith) {
+        console.log('📡 Joining room and announcing presence for:', {
+          userId: user._id,
+          role: user.role,
+          pairedWith: user.pairedWith,
+          userName: user.name
+        });
+        newSocket.emit('join_room', { 
+          userId: user._id, 
+          role: user.role, 
+          pairedWith: user.pairedWith 
+        });
+        newSocket.emit('user_online', { 
+          userId: user._id, 
+          role: user.role, 
+          pairedWith: user.pairedWith 
+        });
+        
+        // Additional check to ensure paired device knows we're online
+        setTimeout(() => {
+          if (newSocket.connected) {
+            console.log('🔄 Re-announcing presence after connection stabilized');
+            newSocket.emit('user_online', { 
+              userId: user._id, 
+              role: user.role, 
+              pairedWith: user.pairedWith 
+            });
+          }
+        }, 2000);
+      } else {
+        console.log('⚠️ User not paired or missing data:', {
+          role: user?.role,
+          pairedWith: user?.pairedWith,
+          userId: user?._id
+        });
+      }
     });
 
     newSocket.on('disconnect', () => {
       console.log('🔌 Socket disconnected');
+      // Announce going offline
+      if (user?.role && user?.pairedWith) {
+        newSocket.emit('user_offline', { 
+          userId: user._id, 
+          role: user.role, 
+          pairedWith: user.pairedWith 
+        });
+      }
       setConnectionStatus(prev => ({ 
         ...prev, 
         isConnected: false, 
@@ -151,26 +222,58 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       }));
     });
 
-    // Parent-child connection events
+    // Enhanced parent-child connection events
+    newSocket.on('parent_online', (data) => {
+      console.log('👨‍👩‍👧‍👦 Parent came online:', data);
+      setConnectionStatus(prev => ({ ...prev, isParentOnline: true }));
+    });
+
+    newSocket.on('child_online', (data) => {
+      console.log('👶 Child came online:', data);
+      setConnectionStatus(prev => ({ ...prev, isChildOnline: true }));
+    });
+
+    newSocket.on('parent_offline', (data) => {
+      console.log('👨‍👩‍👧‍👦 Parent went offline:', data);
+      setConnectionStatus(prev => ({ ...prev, isParentOnline: false }));
+    });
+
+    newSocket.on('child_offline', (data) => {
+      console.log('👶 Child went offline:', data);
+      setConnectionStatus(prev => ({ ...prev, isChildOnline: false }));
+    });
+
+    // Legacy events for backward compatibility
     newSocket.on('parent_connected', (data) => {
-      console.log('👨‍👩‍👧‍👦 Parent connected:', data);
+      console.log('👨‍👩‍👧‍👦 Parent connected (legacy):', data);
       setConnectionStatus(prev => ({ ...prev, isParentOnline: true }));
     });
 
     newSocket.on('child_connected', (data) => {
-      console.log('👶 Child connected:', data);
+      console.log('👶 Child connected (legacy):', data);
       setConnectionStatus(prev => ({ ...prev, isChildOnline: true }));
     });
 
     newSocket.on('parent_disconnected', (data) => {
-      console.log('👨‍👩‍👧‍👦 Parent disconnected:', data);
+      console.log('👨‍👩‍👧‍👦 Parent disconnected (legacy):', data);
       setConnectionStatus(prev => ({ ...prev, isParentOnline: false }));
     });
 
     newSocket.on('child_disconnected', (data) => {
-      console.log('👶 Child disconnected:', data);
+      console.log('👶 Child disconnected (legacy):', data);
       setConnectionStatus(prev => ({ ...prev, isChildOnline: false }));
     });
+
+    // Pairing events
+    newSocket.on('pairing_success', (data) => {
+      console.log('🎉 Pairing success received:', data);
+    });
+
+    newSocket.on('presence_confirmed', (data) => {
+      console.log('✅ Presence confirmation received:', data);
+    });
+
+    setSocket(newSocket);
 
     // Error handling
     newSocket.on('error', (error) => {
@@ -190,6 +293,32 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
         isParentOnline: false,
         isChildOnline: false
       });
+    }
+  };
+
+  const reconnect = () => {
+    console.log('🔄 Reconnecting socket with updated user data...');
+    disconnect();
+    setTimeout(() => {
+      connect();
+    }, 1000); // Brief delay to ensure clean disconnection
+  };
+
+  const announcePresence = () => {
+    if (socket && socket.connected && user?.role && user?.pairedWith) {
+      console.log('📢 Manually announcing presence for:', {
+        userId: user._id,
+        role: user.role,
+        pairedWith: user.pairedWith,
+        userName: user.name
+      });
+      socket.emit('user_online', { 
+        userId: user._id, 
+        role: user.role, 
+        pairedWith: user.pairedWith 
+      });
+    } else {
+      console.log('⚠️ Cannot announce presence - socket not connected or user not paired');
     }
   };
 
@@ -304,7 +433,9 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       onParentConnected,
       onChildConnected,
       connect,
-      disconnect
+      disconnect,
+      reconnect,
+      announcePresence
     }}>
       {children}
     </SocketContext.Provider>

@@ -186,12 +186,28 @@ export const pairWithParent = async (req, res) => {
       });
     }
 
-    // Update both users
-    child.pairedWith = parent._id;
-    parent.pairedWith = child._id;
+    // Check if parent is already paired
+    if (parent.pairedWith) {
+      return res.status(400).json({
+        success: false,
+        message: "Parent is already paired with another device"
+      });
+    }
 
-    await child.save();
+    // Check if child is already paired
+    if (child.pairedWith) {
+      return res.status(400).json({
+        success: false,
+        message: "Child is already paired with another device"
+      });
+    }
+
+    // Pair the devices
+    parent.pairedWith = child._id;
+    child.pairedWith = parent._id;
+
     await parent.save();
+    await child.save();
 
     res.status(200).json({
       success: true,
@@ -248,3 +264,4 @@ export const generatePairingCode = async (req, res) => {
     });
   }
 };
+

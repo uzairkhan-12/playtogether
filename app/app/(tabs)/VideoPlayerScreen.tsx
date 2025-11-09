@@ -15,6 +15,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSocket } from '@/contexts/SocketContext';
 import { useRouter } from 'expo-router';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 interface VideoData {
   _id: string;
@@ -36,10 +37,23 @@ export default function VideoPlayerScreen() {
   const { socket } = useSocket();
   const router = useRouter();
 
+  console.log('🎬 VideoPlayerScreen: Rendering with user:', user?.role, user?.name);
+
   // Redirect parent users to dashboard
   if (user?.role === 'parent') {
-    router.replace('/');
+    console.log('🔄 Redirecting parent to dashboard');
+    router.replace('/(tabs)');
     return null;
+  }
+
+  // Show loading state if user is not loaded yet
+  if (!user) {
+    console.log('⏳ VideoPlayerScreen: No user data, showing loading');
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background }}>
+        <Text style={{ color: theme.text }}>Loading...</Text>
+      </View>
+    );
   }
 
   const [currentVideo, setCurrentVideo] = useState<VideoData | null>(null);
@@ -53,21 +67,31 @@ export default function VideoPlayerScreen() {
   const [error, setError] = useState<string | null>(null);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
   const [parentConnected, setParentConnected] = useState(false);
+  const [isLandscape, setIsLandscape] = useState(false);
+  const [screenDimensions, setScreenDimensions] = useState(Dimensions.get('window'));
 
-  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const controlsTimeoutRef = useRef<any>(null);
   const pendingPlayRef = useRef(false);
 
-  // Initialize player with video source
-  const player = useVideoPlayer(videoSource, (p) => {
+  // Initialize player with video source - only when we have a valid source
+  const player = useVideoPlayer(videoSource || null, (p) => {
+    if (!videoSource) return; // Don't setup player if no video source
+    
     p.loop = false;
     p.volume = volume;
     // Add playback event listeners
-    p.addListener('statusChange', (status, oldStatus, error) => {
-      console.log('📹 Player status changed:', oldStatus, '->', status);
-      if (error) {
-        console.error('Player error:', error);
-        setError('Video playback error');
+    p.addListener('statusChange', (payload) => {
+      console.log('📹 Player status changed:', payload.oldStatus, '->', payload.status);
+      if (payload.error) {
+        console.error('Player error:', payload.error);
+        setError('Video playback error: ' + (payload.error.message || 'Unknown error'));
         setIsLoading(false);
+      } else if (payload.status === 'loading') {
+        setIsLoading(true);
+        setError(null);
+      } else if (payload.status === 'readyToPlay') {
+        setIsLoading(false);
+        setError(null);
       }
     });
   });
@@ -83,6 +107,49 @@ export default function VideoPlayerScreen() {
         setShowControls(false);
       }
     }, 3000);
+  };
+
+  // Handle screen rotation
+  useEffect(() => {
+    const subscription = Dimensions.addEventListener('change', ({ window }) => {
+      setScreenDimensions(window);
+      setIsLandscape(window.width > window.height);
+    });
+
+    // Initial check
+    const { width, height } = Dimensions.get('window');
+    setIsLandscape(width > height);
+
+    return () => subscription?.remove();
+  }, []);
+
+  // Screen orientation management
+  useEffect(() => {
+    if (currentVideo && videoSource) {
+      // Allow all orientations when video is playing
+      ScreenOrientation.unlockAsync();
+    } else {
+      // Lock to portrait when no video
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+    }
+
+    return () => {
+      // Reset to portrait when component unmounts
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+    };
+  }, [currentVideo, videoSource]);
+
+  // Toggle fullscreen rotation
+  const toggleFullscreen = async () => {
+    try {
+      if (isLandscape) {
+        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+      } else {
+        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+      }
+    } catch (error) {
+      console.log('Rotation error:', error);
+    }
   };
 
   // Monitor playback status
@@ -142,6 +209,12 @@ export default function VideoPlayerScreen() {
     const handleConnect = () => {
       console.log('🔌 Child socket connected');
       setIsSocketConnected(true);
+      
+      // Notify that this child is now online and ready
+      if (user?.role === 'child' && user.pairedWith) {
+        console.log('📡 Child notifying parent of online status');
+        socket.emit('child_online', { parentId: user.pairedWith });
+      }
     };
 
     const handleDisconnect = () => {
@@ -160,9 +233,21 @@ export default function VideoPlayerScreen() {
       setParentConnected(false);
     };
 
+    const handleParentOnline = (data: any) => {
+      console.log('👨‍👩‍👧‍👦 Parent came online:', data);
+      setParentConnected(true);
+    };
+
+    const handleParentOffline = (data: any) => {
+      console.log('👨‍👩‍👧‍👦 Parent went offline:', data);
+      setParentConnected(false);
+    };
+
     // Video control handler
-    const handleControl = async (data: VideoControlData) => {
+    const handleControl = async (data: any) => {
       console.log('📺 Received video_control:', data);
+      console.log('📺 Video data:', data.video);
+      console.log('📺 Video URL:', data.video?.url);
       setError(null);
 
       try {
@@ -177,10 +262,18 @@ export default function VideoPlayerScreen() {
                 pendingPlayRef.current = true;
                 setIsPlaying(false);
                 
-                // Small delay to ensure state updates
-                setTimeout(() => {
-                  setVideoSource(data.video.url);
-                }, 100);
+                // Validate video URL before setting
+                if (isValidVideoUrl(data.video.url)) {
+                  console.log('🔗 Setting video source:', data.video.url);
+                  setTimeout(() => {
+                    setVideoSource(data.video.url);
+                  }, 100);
+                } else {
+                  console.error('❌ Invalid video URL:', data.video.url);
+                  setError(`Invalid video URL: ${data.video.url || 'empty URL'}`);
+                  setIsLoading(false);
+                  setCurrentVideo(null);
+                }
               } else {
                 // Resume current video
                 console.log('▶️ Resuming video');
@@ -276,6 +369,8 @@ export default function VideoPlayerScreen() {
     socket.on('disconnect', handleDisconnect);
     socket.on('parent_connected', handleParentConnected);
     socket.on('parent_disconnected', handleParentDisconnected);
+    socket.on('parent_online', handleParentOnline);
+    socket.on('parent_offline', handleParentOffline);
     socket.on('video_control', handleControl);
 
     // Send acknowledgment for video control received
@@ -304,6 +399,8 @@ export default function VideoPlayerScreen() {
       socket.off('disconnect', handleDisconnect);
       socket.off('parent_connected', handleParentConnected);
       socket.off('parent_disconnected', handleParentDisconnected);
+      socket.off('parent_online', handleParentOnline);
+      socket.off('parent_offline', handleParentOffline);
       socket.off('video_control', handleControl);
       clearInterval(playbackStatusInterval);
       if (controlsTimeoutRef.current) {
@@ -361,37 +458,67 @@ export default function VideoPlayerScreen() {
     logout();
   };
 
+  const handleSettings = () => {
+    router.push('/settings');
+  };
+
+  const isValidVideoUrl = (url: string): boolean => {
+    if (!url || url.trim() === '') return false;
+    
+    try {
+      // Check if it's a valid URL format
+      new URL(url);
+      
+      // Check for common video file extensions or streaming URLs
+      const videoExtensions = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.m3u8'];
+      const isVideoFile = videoExtensions.some(ext => url.toLowerCase().includes(ext));
+      const isStreamingUrl = url.includes('cloudinary.com') || url.includes('youtube.com') || url.includes('vimeo.com');
+      
+      return isVideoFile || isStreamingUrl;
+    } catch {
+      return false;
+    }
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar barStyle="light-content" />
       
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.card }]}>
-        <View>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>
-            Child Video Player
-          </Text>
-          <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>
-            Welcome, {user?.name}
-          </Text>
+      {/* Header - Hide in landscape when video is playing */}
+      {!(isLandscape && currentVideo) && (
+        <View style={[styles.header, { backgroundColor: theme.card }]}>
+          <View>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>
+              Child Video Player
+            </Text>
+            <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>
+              Welcome, {user?.name}
+            </Text>
+          </View>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity onPress={handleSettings} style={styles.themeButton}>
+              <Ionicons name="settings" size={24} color={theme.text} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={toggleTheme} style={styles.themeButton}>
+              <Ionicons 
+                name={isDark ? 'sunny' : 'moon'} 
+                size={24} 
+                color={theme.text} 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleLogout} style={styles.themeButton}>
+              <Ionicons name="log-out-outline" size={24} color={theme.error} />
+            </TouchableOpacity>
+          </View>
         </View>
-        <View style={styles.headerButtons}>
-          <TouchableOpacity onPress={toggleTheme} style={styles.themeButton}>
-            <Ionicons 
-              name={isDark ? 'sunny' : 'moon'} 
-              size={24} 
-              color={theme.text} 
-            />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleLogout} style={styles.themeButton}>
-            <Ionicons name="log-out-outline" size={24} color={theme.error} />
-          </TouchableOpacity>
-        </View>
-      </View>
+      )}
       
       {currentVideo && videoSource ? (
         <TouchableOpacity 
-          style={styles.videoContainer} 
+          style={[
+            styles.videoContainer,
+            isLandscape && styles.videoContainerLandscape
+          ]} 
           activeOpacity={1}
           onPress={handleScreenPress}
         >
@@ -430,6 +557,23 @@ export default function VideoPlayerScreen() {
                 <Ionicons 
                   name={isPlaying ? 'pause' : 'play'} 
                   size={50} 
+                  color="#fff" 
+                />
+              </View>
+            </TouchableOpacity>
+          )}
+
+          {/* Rotation Button */}
+          {showControls && !isLoading && (
+            <TouchableOpacity
+              style={styles.rotateButton}
+              onPress={toggleFullscreen}
+              activeOpacity={0.8}
+            >
+              <View style={styles.rotateIconWrapper}>
+                <Ionicons 
+                  name={isLandscape ? "contract" : "expand"} 
+                  size={20} 
                   color="#fff" 
                 />
               </View>
@@ -486,11 +630,24 @@ export default function VideoPlayerScreen() {
           <View style={styles.waitingCard}>
             <Ionicons name="videocam-off-outline" size={80} color={theme.textSecondary} />
             <Text style={[styles.waitingTitle, { color: theme.text }]}>
-              Waiting for Video
+              {error ? 'Video Error' : 'Waiting for Video'}
             </Text>
-            <Text style={[styles.waitingSubtitle, { color: theme.textSecondary }]}>
-              Your parent will start a video soon
+            <Text style={[styles.waitingSubtitle, { color: error ? theme.error : theme.textSecondary }]}>
+              {error || 'Your parent will start a video soon'}
             </Text>
+            
+            {error && (
+              <TouchableOpacity 
+                style={[styles.retryButton, { backgroundColor: theme.primary }]}
+                onPress={() => {
+                  setError(null);
+                  setCurrentVideo(null);
+                  setVideoSource('');
+                }}
+              >
+                <Text style={styles.retryButtonText}>Clear Error</Text>
+              </TouchableOpacity>
+            )}
             
             {/* Connection Status Indicators */}
             <View style={styles.connectionStatus}>
@@ -503,7 +660,7 @@ export default function VideoPlayerScreen() {
                 <Text style={[styles.statusText, { 
                   color: isSocketConnected ? '#4CAF50' : theme.textSecondary 
                 }]}>
-                  {isSocketConnected ? 'Connected' : 'Disconnected'}
+                  {isSocketConnected ? 'Connected to Server' : 'Disconnected'}
                 </Text>
               </View>
               
@@ -518,7 +675,32 @@ export default function VideoPlayerScreen() {
                 }]}>
                   Parent {parentConnected ? 'Online' : 'Offline'}
                 </Text>
+                {user?.pairedWith && (
+                  <TouchableOpacity 
+                    style={styles.refreshStatusButton}
+                    onPress={() => {
+                      if (socket && socket.connected) {
+                        socket.emit('child_ping_parent');
+                      }
+                    }}
+                  >
+                    <Ionicons name="refresh" size={16} color={theme.textSecondary} />
+                  </TouchableOpacity>
+                )}
               </View>
+              
+              {/* <View style={styles.statusRow}>
+                <Ionicons 
+                  name={parentConnected ? 'person' : 'person-outline'} 
+                  size={20} 
+                  color={parentConnected ? '#4CAF50' : theme.textSecondary} 
+                />
+                <Text style={[styles.statusText, { 
+                  color: parentConnected ? '#4CAF50' : theme.textSecondary 
+                }]}>
+                  Parent {parentConnected ? 'Online' : 'Offline'}
+                </Text>
+              </View> */}
             </View>
 
             <View style={styles.pulseContainer}>
@@ -574,6 +756,14 @@ const styles = StyleSheet.create({
     position: 'relative',
     justifyContent: 'center',
   },
+  videoContainerLandscape: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+  },
   video: {
     width: '100%',
     height: '100%',
@@ -621,6 +811,22 @@ const styles = StyleSheet.create({
   pulse3: {
     opacity: 1,
   },
+  retryButton: {
+    marginTop: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 20,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  refreshStatusButton: {
+    marginLeft: 8,
+    padding: 4,
+    borderRadius: 12,
+  },
   loadingOverlay: {
     position: 'absolute',
     top: 0,
@@ -666,6 +872,27 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  rotateButton: {
+    position: 'absolute',
+    top: 50,
+    right: 16,
+    zIndex: 1000,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  rotateIconWrapper: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   topGradient: {
     position: 'absolute',
