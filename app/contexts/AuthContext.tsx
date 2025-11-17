@@ -5,6 +5,7 @@ import axios from 'axios';
 
 // API configuration
 const API_BASE_URL = 'http://192.168.100.216:8888/api';
+const SERVER_BASE_URL = 'http://192.168.100.216:8888';
 
 // Types
 interface User {
@@ -25,6 +26,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   hasLoggedInBefore: boolean;
+  serverBaseUrl: string;
   login: (email: string, password: string) => Promise<{ success: boolean; user?: User; message?: string }>;
   register: (name: string, email: string, password: string, role?: 'parent' | 'child') => Promise<{ success: boolean; user?: User; message?: string }>;
   logout: () => Promise<void>;
@@ -46,6 +48,7 @@ const AuthContext = createContext<AuthContextType>({
   isLoading: true,
   isAuthenticated: false,
   hasLoggedInBefore: false,
+  serverBaseUrl: SERVER_BASE_URL,
   login: async () => ({ success: false }),
   register: async () => ({ success: false }),
   logout: async () => {},
@@ -274,6 +277,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       isLoading,
       isAuthenticated,
       hasLoggedInBefore,
+      serverBaseUrl: SERVER_BASE_URL,
       login,
       register,
       logout,

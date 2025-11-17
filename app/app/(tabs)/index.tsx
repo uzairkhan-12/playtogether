@@ -8,6 +8,8 @@ import { router } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { api } from '@/contexts/AuthContext';
 import VideosSection from '@/components/parent/VideosSection';
+import VideoControlPanel from '@/components/parent/VideoControlPanel';
+import { useVideoPlaylist } from '@/hooks/useVideoPlaylist';
 
 interface Video {
   _id: string;
@@ -15,7 +17,7 @@ interface Video {
   description?: string;
   duration: number;
   thumbnailUrl?: string;
-  cloudinaryUrl: string;
+  url: string;
   uploadedAt: string;
   playCount: number;
   fileSize: number;
@@ -32,6 +34,15 @@ const formatTime = (seconds: number): string => {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+const formatFileSize = (bytes: number): string => {
+  if (!bytes || bytes === 0) return '0 B';
+  
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  const formattedSize = Math.round(bytes / Math.pow(1024, i) * 100) / 100;
+  return `${formattedSize} ${sizes[i]}`;
 };
 
 // Simplified function - duration will be calculated on the server
@@ -58,15 +69,32 @@ export default function HomeScreen() {
   const [isUploading, setIsUploading] = useState(false);
   const [isLoadingVideos, setIsLoadingVideos] = useState(false);
   const [videoDuration, setVideoDuration] = useState<number>(0);
-  const [currentlyPlaying, setCurrentlyPlaying] = useState<Video | null>(null);
-  const [childPlaybackStatus, setChildPlaybackStatus] = useState({
-    isPlaying: false,
-    currentTime: 0,
-    volume: 100,
-    duration: 0
+  
+  // Video playlist hook
+  const {
+    currentVideo,
+    playbackStatus,
+    volume,
+    canControl,
+    hasPrevious,
+    hasNext,
+    playVideo,
+    pauseVideo,
+    resumeVideo,
+    stopVideo,
+    playNext,
+    playPrevious,
+    changeVolume,
+    togglePlayPause,
+  } = useVideoPlaylist({
+    videos,
+    socket,
+    isConnected,
+    childConnected,
+    onVideoChange: (video) => {
+      console.log('🎵 Current video changed:', video?.title || 'None');
+    },
   });
-  const [volumeControl, setVolumeControl] = useState(100);
-  const [showControls, setShowControls] = useState(false);
 
   // Fetch videos
   const fetchVideos = async () => {
@@ -82,6 +110,24 @@ export default function HomeScreen() {
       Alert.alert('Error', 'Failed to load videos');
     } finally {
       setIsLoadingVideos(false);
+    }
+  };
+
+  // Delete video handler (called from VideosSection on parent dashboard)
+  const handleDeleteVideo = async (videoId: string) => {
+    try {
+      const response = await api.delete(`/videos/${videoId}`);
+      if (response.data.success) {
+        // Refresh videos list after successful deletion
+        await fetchVideos();
+        return true;
+      }
+      Alert.alert('Delete Failed', response.data.message || 'Could not delete video');
+      return false;
+    } catch (error: any) {
+      console.error('Delete video error:', error);
+      Alert.alert('Delete Error', error.response?.data?.message || error.message || 'Failed to delete video');
+      return false;
     }
   };
 
@@ -114,58 +160,13 @@ export default function HomeScreen() {
     }
   };
 
-  // Video controls
-  const playVideo = (video: Video) => {
-    if (!childConnected || !isConnected || !socket) {
+  // Video control wrapper for compatibility
+  const handlePlayVideo = (video: Video) => {
+    if (!childConnected || !isConnected) {
       Alert.alert('Connection Error', 'Child device is offline or connection unavailable.');
       return;
     }
-
-    if (currentlyPlaying) {
-      socket.emit('video_stop', { videoId: currentlyPlaying._id });
-    }
-    
-    socket.emit('video_play', { videoId: video._id, currentTime: 0 });
-    setCurrentlyPlaying(video);
-    setShowControls(true);
-    setVolumeControl(100);
-    setChildPlaybackStatus(prev => ({ ...prev, duration: video.duration, isPlaying: true }));
-  };
-
-  const pauseVideo = () => {
-    if (!childConnected || !isConnected || !socket || !currentlyPlaying) return;
-    
-    socket.emit('video_pause', {
-      videoId: currentlyPlaying._id,
-      currentTime: childPlaybackStatus.currentTime
-    });
-  };
-
-  const resumeVideo = () => {
-    if (!childConnected || !isConnected || !socket || !currentlyPlaying) return;
-    
-    socket.emit('video_play', {
-      videoId: currentlyPlaying._id,
-      currentTime: childPlaybackStatus.currentTime
-    });
-  };
-
-  const stopVideo = () => {
-    if (!socket || !currentlyPlaying) return;
-    
-    socket.emit('video_stop', { videoId: currentlyPlaying._id });
-    setShowControls(false);
-    setCurrentlyPlaying(null);
-  };
-
-  const changeVolume = (volume: number) => {
-    if (!childConnected || !isConnected || !socket || !currentlyPlaying) return;
-    
-    setVolumeControl(volume);
-    socket.emit('video_volume', {
-      videoId: currentlyPlaying._id,
-      volume: Math.round(volume)
-    });
+    playVideo(video);
   };
 
   const handleLogout = async () => {
@@ -268,15 +269,8 @@ export default function HomeScreen() {
     const handleChildConnected = () => setChildConnected(true);
     const handleChildDisconnected = () => {
       setChildConnected(false);
-      if (currentlyPlaying) {
-        setShowControls(false);
-        setCurrentlyPlaying(null);
-        setChildPlaybackStatus({
-          isPlaying: false,
-          currentTime: 0,
-          volume: 100,
-          duration: 0
-        });
+      if (currentVideo) {
+        stopVideo();
       }
     };
 
@@ -285,14 +279,7 @@ export default function HomeScreen() {
     socket.on('child_connected', handleChildConnected);
     socket.on('child_disconnected', handleChildDisconnected);
 
-      socket.on('child_playback_status', (data) => {
-        setChildPlaybackStatus({
-          isPlaying: data.isPlaying,
-          currentTime: data.currentTime,
-          volume: data.volume,
-          duration: data.duration || 0
-        });
-      });
+      // Child playback status is now handled by the useVideoPlaylist hook
 
       socket.on('paired_status', (data) => {
         console.log('📡 Received paired_status:', data);
@@ -334,7 +321,7 @@ export default function HomeScreen() {
         socket.off('child_offline');
         socket.off('pairing_success');
       };
-  }, [socket, currentlyPlaying]);
+  }, [socket, currentVideo]);
 
   // Don't render if child (will redirect)
   if (user?.role === 'child') {
@@ -400,133 +387,22 @@ export default function HomeScreen() {
       )}
 
       {/* Video Control Panel */}
-      {showControls && currentlyPlaying && (
-        <View style={[styles.controlPanel, { 
-          backgroundColor: theme.card,
-          opacity: childConnected ? 1 : 0.6 
-        }]}>
-          <Text style={[styles.controlTitle, { color: theme.text }]}>
-            Now Playing: {currentlyPlaying.title}
-          </Text>
-          
-          <View style={styles.controlStatusRow}>
-            <View style={styles.controlStatusItem}>
-              <Ionicons 
-                name="wifi" 
-                size={16} 
-                color={isConnected ? theme.success : theme.error} 
-              />
-              <Text style={[styles.controlStatusText, { color: theme.text }]}>Socket</Text>
-            </View>
-            <View style={styles.controlStatusItem}>
-              <Ionicons 
-                name="phone-portrait" 
-                size={16} 
-                color={childConnected ? theme.success : theme.error} 
-              />
-              <Text style={[styles.controlStatusText, { color: theme.text }]}>Child</Text>
-            </View>
-            <View style={styles.controlStatusItem}>
-              <Ionicons 
-                name={childPlaybackStatus.isPlaying ? 'play' : 'pause'} 
-                size={16} 
-                color={childConnected && childPlaybackStatus.isPlaying ? theme.success : theme.warning} 
-              />
-              <Text style={[styles.controlStatusText, { color: theme.text }]}>
-                {childConnected ? (childPlaybackStatus.isPlaying ? 'Playing' : 'Paused') : 'Offline'}
-              </Text>
-            </View>
-          </View>
-
-          <Text style={[styles.timeText, { color: theme.text, textAlign: 'center', marginVertical: 8 }]}>
-            {formatTime(childPlaybackStatus.currentTime)} / {formatTime(childPlaybackStatus.duration)}
-          </Text>
-
-          <View style={styles.playbackControls}>
-            <TouchableOpacity
-              style={[styles.controlButton, { 
-                backgroundColor: childConnected ? theme.primary : theme.textSecondary,
-                opacity: childConnected ? 1 : 0.5
-              }]}
-              onPress={childPlaybackStatus.isPlaying ? pauseVideo : resumeVideo}
-              disabled={!childConnected}
-            >
-              <Ionicons 
-                name={childPlaybackStatus.isPlaying ? 'pause' : 'play'} 
-                size={24} 
-                color="#fff" 
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.controlButton, { 
-                backgroundColor: theme.error,
-                opacity: childConnected ? 1 : 0.5
-              }]}
-              onPress={stopVideo}
-              disabled={!childConnected}
-            >
-              <Ionicons name="stop" size={24} color="#fff" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.volumeSection}>
-            <Text style={[styles.volumeLabel, { color: theme.text }]}>
-              Volume: {Math.round(volumeControl)}%{!childConnected && " (Offline)"}
-            </Text>
-            <View style={styles.volumeControl}>
-              <Ionicons name="volume-low" size={20} color={theme.text} />
-              <View style={styles.sliderContainer}>
-                <View style={[styles.slider, { 
-                  backgroundColor: theme.border,
-                  opacity: childConnected ? 1 : 0.5
-                }]}>
-                  <TouchableOpacity
-                    style={styles.sliderTrack}
-                    onPress={(e) => {
-                      const newVolume = (e.nativeEvent.locationX / 200) * 100;
-                      changeVolume(Math.max(0, Math.min(100, newVolume)));
-                    }}
-                    disabled={!childConnected}
-                  >
-                    <View 
-                      style={[styles.sliderFill, { 
-                        backgroundColor: childConnected ? theme.primary : theme.textSecondary,
-                        width: `${volumeControl}%`
-                      }]} 
-                    />
-                    <View 
-                      style={[styles.sliderThumb, { 
-                        backgroundColor: childConnected ? theme.primary : theme.textSecondary,
-                        left: `${volumeControl}%`
-                      }]} 
-                    />
-                  </TouchableOpacity>
-                </View>
-              </View>
-              <Ionicons name="volume-high" size={20} color={theme.text} />
-            </View>
-          </View>
-
-          <View style={styles.quickVolume}>
-            {[0, 25, 50, 75, 100].map((vol) => (
-              <TouchableOpacity
-                key={vol}
-                style={[styles.volumeButton, { 
-                  backgroundColor: volumeControl === vol ? theme.primary : theme.border,
-                  opacity: childConnected ? 1 : 0.5
-                }]}
-                onPress={() => changeVolume(vol)}
-                disabled={!childConnected}
-              >
-                <Text style={[styles.volumeButtonText, { 
-                  color: volumeControl === vol ? '#fff' : theme.text 
-                }]}>
-                  {vol}%
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+      {currentVideo && (
+        <VideoControlPanel
+          currentVideo={currentVideo}
+          videos={videos}
+          isConnected={isConnected}
+          childConnected={childConnected}
+          playbackStatus={playbackStatus}
+          volume={volume}
+          onTogglePlayPause={togglePlayPause}
+          onStop={stopVideo}
+          onNext={playNext}
+          onPrevious={playPrevious}
+          onVolumeChange={changeVolume}
+          formatTime={formatTime}
+          formatFileSize={formatFileSize}
+        />
       )}
 
       {/* Upload Button */}
@@ -609,10 +485,12 @@ export default function HomeScreen() {
         videos={videos}
         isLoadingVideos={isLoadingVideos}
         childConnected={childConnected}
-        currentlyPlaying={currentlyPlaying}
-        childPlaybackStatus={childPlaybackStatus}
-        onPlayVideo={playVideo}
+        currentlyPlaying={currentVideo}
+        childPlaybackStatus={playbackStatus}
+        onPlayVideo={handlePlayVideo}
+        onDeleteVideo={handleDeleteVideo}
         formatTime={formatTime}
+        formatFileSize={formatFileSize}
       />
     </ScrollView>
   );

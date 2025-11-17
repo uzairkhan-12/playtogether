@@ -16,6 +16,11 @@ cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
+  // Enhanced configuration for large file uploads
+  secure: true, // Use HTTPS
+  timeout: 600000, // 10 minutes timeout
+  // Remove limits that might cause 413 errors
+  max_file_size: 200 * 1024 * 1024, // 200MB limit for safety
 });
 
 // Test Cloudinary connection

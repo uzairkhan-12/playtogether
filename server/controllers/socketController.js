@@ -1,10 +1,26 @@
 import jwt from "jsonwebtoken";
+import os from 'os';
 import User from "../Models/User.js";
 import Video from "../Models/Video.js";
 
 // Store active connections
 const activeConnections = new Map();
 const parentChildRooms = new Map();
+
+
+
+// Helper: get a LAN IP address (first non-internal IPv4)
+const getLocalIp = () => {
+  const ifaces = os.networkInterfaces();
+  for (const name of Object.keys(ifaces)) {
+    for (const iface of ifaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return '127.0.0.1';
+};
 
 // Socket.IO middleware for authentication
 export const authenticateSocket = async (socket, next) => {
@@ -290,7 +306,7 @@ const setupVideoControlEvents = (socket, io) => {
           currentTime,
           video: {
             title: video.title,
-            url: video.cloudinaryUrl,
+            url: video.url,
             duration: video.duration
           },
           timestamp: new Date()
@@ -386,7 +402,7 @@ const setupVideoControlEvents = (socket, io) => {
             videoId: nextVideo._id,
             video: {
               title: nextVideo.title,
-              url: nextVideo.cloudinaryUrl,
+              url: nextVideo.url,
               duration: nextVideo.duration
             },
             timestamp: new Date()
@@ -420,7 +436,7 @@ const setupVideoControlEvents = (socket, io) => {
             videoId: prevVideo._id,
             video: {
               title: prevVideo.title,
-              url: prevVideo.cloudinaryUrl,
+              url: prevVideo.url,
               duration: prevVideo.duration
             },
             timestamp: new Date()
@@ -455,7 +471,7 @@ const setupVideoControlEvents = (socket, io) => {
 
     // Child sends playback status updates
     socket.on("playback_status", (data) => {
-      const { videoId, currentTime, isPlaying, volume } = data;
+      const { videoId, currentTime, duration, isPlaying, volume } = data;
       
       if (user.pairedWith) {
         const parentConnection = activeConnections.get(user.pairedWith.toString());
@@ -463,6 +479,7 @@ const setupVideoControlEvents = (socket, io) => {
           io.to(parentConnection.socketId).emit("child_playback_status", {
             videoId,
             currentTime,
+            duration,
             isPlaying,
             volume,
             childName: user.name,

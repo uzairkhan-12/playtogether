@@ -12,14 +12,15 @@ const videoSchema = new mongoose.Schema({
     trim: true,
     maxlength: [500, "Description cannot exceed 500 characters"]
   },
-  // Cloudinary video data
-  cloudinaryUrl: {
+  // Stored video location (local file or external)
+  url: {
     type: String,
     required: [true, "Video URL is required"]
   },
-  cloudinaryPublicId: {
+  // Optional storage identifier (e.g., Cloudinary public ID or local filename)
+  storageId: {
     type: String,
-    required: [true, "Cloudinary public ID is required"]
+    default: null
   },
   // Thumbnail information
   thumbnailUrl: {

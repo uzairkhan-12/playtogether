@@ -6,23 +6,52 @@ import {
   updateVideo,
   deleteVideo,
   playVideo,
-  upload
+  upload,
+  uploadProgressLogger
 } from "../controllers/videoController.js";
 import { protect, restrictTo, requirePairing } from "../utils/authMiddleware.js";
 
 const router = express.Router();
 
-// All routes require authentication
+// All routes require authentication  
 router.use(protect);
 
-// Video upload (Parents only)
+// Video upload (Parents only) - Enhanced for large files up to 300MB
 router.post("/upload", 
   restrictTo("parent"),
+  uploadProgressLogger, // Log upload progress and timing
   (req, res, next) => {
+    console.log('🔄 Processing file upload with enhanced multer configuration...');
     upload.single("video")(req, res, (err) => {
       if (err) {
-        return next(err); // Pass multer errors to error handler
+        console.error('❌ Multer error:', err.message);
+        
+        // Enhanced multer error handling
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(413).json({
+            success: false,
+            message: 'File too large! Maximum size allowed is 300MB.',
+            errorCode: 'FILE_TOO_LARGE',
+            maxSize: '100MB',
+            suggestion: 'Please compress your video to under 100MB'
+          });
+        }
+        
+        if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+          return res.status(400).json({
+            success: false,
+            message: 'Only video files are allowed.',
+            errorCode: 'INVALID_FILE_TYPE'
+          });
+        }
+        
+        return res.status(400).json({
+          success: false,
+          message: err.message || 'File upload error',
+          errorCode: 'UPLOAD_ERROR'
+        });
       }
+      console.log('✅ File processed by multer successfully');
       next();
     });
   },

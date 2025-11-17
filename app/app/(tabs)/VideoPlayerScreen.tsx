@@ -32,7 +32,7 @@ interface VideoControlData {
 }
 
 export default function VideoPlayerScreen() {
-  const { user, logout } = useAuth();
+  const { user, logout, serverBaseUrl } = useAuth();
   const { theme, toggleTheme, isDark } = useTheme();
   const { socket } = useSocket();
   const router = useRouter();
@@ -75,6 +75,7 @@ export default function VideoPlayerScreen() {
 
   // Initialize player with video source - only when we have a valid source
   const player = useVideoPlayer(videoSource || null, (p) => {
+    console.log({videoSource})
     if (!videoSource) return; // Don't setup player if no video source
     
     p.loop = false;
@@ -161,22 +162,41 @@ export default function VideoPlayerScreen() {
         const status = player.status;
         
         if (status === 'readyToPlay') {
-          setCurrentTime(player.currentTime || 0);
-          setDuration(player.duration || 0);
-          setIsLoading(false);
+          const newCurrentTime = player.currentTime || 0;
+          const playerDuration = player.duration || 0;
           
-          // Handle pending play request
-          if (pendingPlayRef.current) {
-            console.log('✅ Player ready, starting playback');
-            player.play();
-            setIsPlaying(true);
-            pendingPlayRef.current = false;
-            resetControlsTimeout();
+          setCurrentTime(newCurrentTime);
+          
+          // Only update duration if we don't have one OR if player has a valid duration
+          // This preserves the database duration if player duration is 0
+          if (duration === 0 && playerDuration > 0) {
+            setDuration(playerDuration);
           }
           
-          // Update playing state
-          if (player.playing !== isPlaying) {
-            setIsPlaying(player.playing);
+          setIsLoading(false);
+          
+          // Check if video has ended (within 1 second of duration)
+          const currentDuration = duration > 0 ? duration : playerDuration;
+          const isNearEnd = currentDuration > 0 && newCurrentTime >= currentDuration - 1;
+          const hasEnded = currentDuration > 0 && newCurrentTime >= currentDuration;
+          
+          if (hasEnded || (isNearEnd && !player.playing)) {
+            setIsPlaying(false);
+            setShowControls(true);
+          } else {
+            // Handle pending play request
+            if (pendingPlayRef.current) {
+              console.log('✅ Player ready, starting playback');
+              player.play();
+              setIsPlaying(true);
+              pendingPlayRef.current = false;
+              resetControlsTimeout();
+            }
+            
+            // Update playing state
+            if (player.playing !== isPlaying) {
+              setIsPlaying(player.playing);
+            }
           }
         } else if (status === 'loading') {
           setIsLoading(true);
@@ -262,15 +282,20 @@ export default function VideoPlayerScreen() {
                 pendingPlayRef.current = true;
                 setIsPlaying(false);
                 
-                // Validate video URL before setting
-                if (isValidVideoUrl(data.video.url)) {
-                  console.log('🔗 Setting video source:', data.video.url);
+                // Set duration from database (more reliable than player.duration)
+                if (data.video.duration && data.video.duration > 0) {
+                  setDuration(data.video.duration);
+                }
+                
+                // Construct full URL from relative path
+                const fullVideoUrl = getFullVideoUrl(data.video.url);
+                if (isValidVideoUrl(fullVideoUrl)) {
                   setTimeout(() => {
-                    setVideoSource(data.video.url);
+                    setVideoSource(fullVideoUrl);
                   }, 100);
                 } else {
-                  console.error('❌ Invalid video URL:', data.video.url);
-                  setError(`Invalid video URL: ${data.video.url || 'empty URL'}`);
+                  console.error('❌ Invalid video URL:', fullVideoUrl);
+                  setError(`Invalid video URL: ${fullVideoUrl || 'empty URL'}`);
                   setIsLoading(false);
                   setCurrentVideo(null);
                 }
@@ -383,16 +408,27 @@ export default function VideoPlayerScreen() {
     };
 
     // Send periodic playback status updates
-    const playbackStatusInterval = setInterval(() => {
+    const sendPlaybackStatus = () => {
       if (currentVideo && socket.connected) {
-        socket.emit('playback_status', {
+        const statusData = {
           videoId: currentVideo._id,
           currentTime,
+          duration,
           isPlaying,
           volume: Math.round(volume * 100)
-        });
+        };
+        socket.emit('playback_status', statusData);
       }
-    }, 2000); // Send status every 2 seconds
+    };
+
+    // Regular status updates every 2 seconds
+    const playbackStatusInterval = setInterval(sendPlaybackStatus, 2000);
+    
+    // Additional frequent updates when video is near end (last 10 seconds)
+    let endStatusInterval: any = null;
+    if (duration > 0 && currentTime >= duration - 10) {
+      endStatusInterval = setInterval(sendPlaybackStatus, 500);
+    }
 
     return () => {
       socket.off('connect', handleConnect);
@@ -403,6 +439,9 @@ export default function VideoPlayerScreen() {
       socket.off('parent_offline', handleParentOffline);
       socket.off('video_control', handleControl);
       clearInterval(playbackStatusInterval);
+      if (endStatusInterval) {
+        clearInterval(endStatusInterval);
+      }
       if (controlsTimeoutRef.current) {
         clearTimeout(controlsTimeoutRef.current);
       }
@@ -460,6 +499,24 @@ export default function VideoPlayerScreen() {
 
   const handleSettings = () => {
     router.push('/settings');
+  };
+
+  // Helper function to construct full URL from relative path
+  const getFullVideoUrl = (relativePath: string): string => {
+    if (!relativePath) return '';
+    
+    // If already a full URL, return as is
+    if (relativePath.startsWith('http://') || relativePath.startsWith('https://')) {
+      return relativePath;
+    }
+    
+    // If relative path, prepend server base URL
+    if (relativePath.startsWith('/')) {
+      return `${serverBaseUrl}${relativePath}`;
+    }
+    
+    // If just filename, assume it's in uploads/videos
+    return `${serverBaseUrl}/uploads/videos/${relativePath}`;
   };
 
   const isValidVideoUrl = (url: string): boolean => {

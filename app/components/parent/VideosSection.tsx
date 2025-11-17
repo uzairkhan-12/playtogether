@@ -7,9 +7,11 @@ import {
   Image,
   ActivityIndicator,
   StyleSheet,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface Video {
   _id: string;
@@ -17,7 +19,7 @@ interface Video {
   description?: string;
   duration: number;
   thumbnailUrl?: string;
-  cloudinaryUrl: string;
+  url: string;
   uploadedAt: string;
   playCount: number;
   fileSize: number;
@@ -42,7 +44,9 @@ interface VideosSectionProps {
     duration: number;
   };
   onPlayVideo: (video: Video) => void;
+  onDeleteVideo?: (videoId: string) => Promise<boolean>;
   formatTime: (seconds: number) => string;
+  formatFileSize: (bytes: number) => string;
 }
 
 const VideosSection: React.FC<VideosSectionProps> = ({
@@ -52,9 +56,32 @@ const VideosSection: React.FC<VideosSectionProps> = ({
   currentlyPlaying,
   childPlaybackStatus,
   onPlayVideo,
+  onDeleteVideo,
   formatTime,
+  formatFileSize,
 }) => {
   const { theme } = useTheme();
+  const { serverBaseUrl } = useAuth();
+  const [selectedForDelete, setSelectedForDelete] = React.useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = React.useState<string | null>(null);
+
+  // Helper function to construct full thumbnail URL
+  const getFullThumbnailUrl = (relativePath: string): string => {
+    if (!relativePath) return '';
+    
+    // If already a full URL, return as is
+    if (relativePath.startsWith('http://') || relativePath.startsWith('https://')) {
+      return relativePath;
+    }
+    
+    // If relative path, prepend server base URL
+    if (relativePath.startsWith('/')) {
+      return `${serverBaseUrl}${relativePath}`;
+    }
+    
+    // If just filename, assume it's in uploads/thumbnails
+    return `${serverBaseUrl}/uploads/thumbnails/${relativePath}`;
+  };
 
   return (
     <View style={styles.videosSection}>
@@ -87,13 +114,17 @@ const VideosSection: React.FC<VideosSectionProps> = ({
                   opacity: childConnected ? 1 : 0.7
                 }]}
                 onPress={() => onPlayVideo(video)}
+                onLongPress={() => {
+                  // Show delete button on long press
+                  setSelectedForDelete(prev => (prev === video._id ? null : video._id));
+                }}
                 disabled={!childConnected}
               >
                 <View style={styles.videoGridThumbnail}>
                   {video.thumbnailUrl ? (
                     <Image 
                       source={{ 
-                        uri: video.thumbnailUrl.replace('http://', 'https://'),
+                        uri: getFullThumbnailUrl(video.thumbnailUrl),
                         headers: { 'Accept': 'image/*' }
                       }} 
                       style={styles.gridThumbnailImage}
@@ -123,6 +154,11 @@ const VideosSection: React.FC<VideosSectionProps> = ({
                     <Text style={styles.gridDurationText}>{formatTime(video.duration)}</Text>
                   </View>
                   
+                  {/* File Size Badge */}
+                  <View style={[styles.gridFileSizeBadge, { backgroundColor: 'rgba(0,0,0,0.8)' }]}>
+                    <Text style={styles.gridFileSizeText}>{formatFileSize(video.fileSize)}</Text>
+                  </View>
+                  
                   {/* Title Overlay */}
                   <View style={styles.titleOverlay}>
                     <Text style={styles.overlayTitle} numberOfLines={2}>
@@ -142,6 +178,40 @@ const VideosSection: React.FC<VideosSectionProps> = ({
                       <View style={[styles.gridPlayingIndicator, { 
                         backgroundColor: childPlaybackStatus.isPlaying ? '#4CAF50' : '#FF9800' 
                       }]} />
+                    </View>
+                  )}
+                  {/* Delete overlay: shown after long-press */}
+                  {selectedForDelete === video._id && (
+                    <View style={styles.deleteOverlay}>
+                      {isDeleting === video._id ? (
+                        <ActivityIndicator color="#fff" />
+                      ) : (
+                        <TouchableOpacity
+                          onPress={() => {
+                            // Confirmation
+                            Alert.alert(
+                              'Delete Video',
+                              'Are you sure you want to delete this video? This action cannot be undone.',
+                              [
+                                { text: 'Cancel', style: 'cancel', onPress: () => setSelectedForDelete(null) },
+                                { text: 'Delete', style: 'destructive', onPress: async () => {
+                                  if (!onDeleteVideo) return;
+                                  setIsDeleting(video._id);
+                                  const ok = await onDeleteVideo(video._id);
+                                  setIsDeleting(null);
+                                  setSelectedForDelete(null);
+                                  if (!ok) {
+                                    // Optionally show error handled by parent
+                                  }
+                                }}
+                              ]
+                            );
+                          }}
+                          style={styles.deleteButton}
+                        >
+                          <Text style={styles.deleteButtonText}>Delete</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   )}
                 </View>
@@ -256,6 +326,19 @@ const styles = StyleSheet.create({
     fontSize: 11, 
     fontWeight: '700' 
   },
+  gridFileSizeBadge: { 
+    position: 'absolute', 
+    top: 8, 
+    left: 8, 
+    paddingHorizontal: 8, 
+    paddingVertical: 4, 
+    borderRadius: 8 
+  },
+  gridFileSizeText: { 
+    color: '#fff', 
+    fontSize: 10, 
+    fontWeight: '600' 
+  },
   titleOverlay: {
     position: 'absolute',
     bottom: 0,
@@ -293,6 +376,26 @@ const styles = StyleSheet.create({
     width: 8, 
     height: 8, 
     borderRadius: 4 
+  },
+  // Delete overlay/button styles
+  deleteOverlay: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 6,
+    borderRadius: 8,
+  },
+  deleteButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#E53935',
+    borderRadius: 8,
+  },
+  deleteButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 12,
   },
 });
 
