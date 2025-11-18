@@ -16,7 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSocket } from '@/contexts/SocketContext';
 import { useRouter } from 'expo-router';
-// import * as ScreenOrientation from 'expo-screen-orientation';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 interface VideoData {
   _id: string;
@@ -307,6 +307,7 @@ export default function VideoPlayerScreen() {
       setError(null);
 
       try {
+        console.log('🎯 Processing video control action:', data.action, data);
         switch (data.action) {
           case 'play':
             if (data.video) {
@@ -421,27 +422,36 @@ export default function VideoPlayerScreen() {
             break;
 
           case 'fullscreen':
-            console.log('📱 Toggling fullscreen:', data.fullscreen);
+            console.log('📱 FULLSCREEN CASE TRIGGERED - Toggling fullscreen:', data.fullscreen);
             try {
               if (data.fullscreen) {
-                // await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+                console.log('🔄 Switching to landscape mode');
+                await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+                console.log('✅ Successfully switched to landscape');
               } else {
-                // await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+                console.log('🔄 Switching to portrait mode');
+                await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+                console.log('✅ Successfully switched to portrait');
               }
             } catch (err) {
-              console.log('Fullscreen toggle failed:', err);
+              console.error('❌ Fullscreen toggle failed:', err);
             }
             break;
 
           case 'repeat':
-            console.log('🔁 Setting repeat mode:', data.repeat);
+            console.log('🔁 REPEAT CASE TRIGGERED - Setting repeat mode:', data.repeat);
             setIsRepeat(data.repeat);
             // Update player loop property
             if (player) {
+              console.log('🔄 Updating player loop property to:', data.repeat);
               player.loop = data.repeat;
+              console.log('✅ Player loop updated successfully');
+            } else {
+              console.log('❌ No player available to update loop property');
             }
             // Reset repeat flag when mode changes
             repeatInProgressRef.current = false;
+            console.log('✅ Repeat mode set to:', data.repeat);
             break;
         }
       } catch (err) {

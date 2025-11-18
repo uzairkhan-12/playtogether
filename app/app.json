@@ -8,6 +8,9 @@
     "scheme": "app",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "extra": {
+      "BACKEND_URL": "https://zeyadhome8888.primewave1.click"
+    },
     "ios": {
       "supportsTablet": true
     },

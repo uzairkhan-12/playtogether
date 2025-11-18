@@ -2,10 +2,12 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
+import Constants from 'expo-constants';
 
-// API configuration
-const API_BASE_URL = 'http://192.168.100.17:8888/api';
-const SERVER_BASE_URL = 'http://192.168.100.17:8888';
+// API configuration from environment variables
+const BACKEND_URL = Constants.expoConfig?.extra?.BACKEND_URL || 'https://zeyadhome8888.primewave1.click';
+const API_BASE_URL = `${BACKEND_URL}/api`;
+const SERVER_BASE_URL = BACKEND_URL;
 
 // Types
 interface User {

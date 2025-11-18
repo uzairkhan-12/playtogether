@@ -1,14 +1,17 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
+import Constants from 'expo-constants';
 
 // Types for Socket.IO events
 interface VideoControlData {
-  action: 'play' | 'pause' | 'seek' | 'volume' | 'stop' | 'next' | 'previous';
+  action: 'play' | 'pause' | 'seek' | 'volume' | 'stop' | 'next' | 'previous' | 'fullscreen' | 'repeat';
   videoId: string;
   currentTime?: number;
   seekTime?: number;
   volume?: number;
+  fullscreen?: boolean;
+  repeat?: boolean;
   video?: {
     title: string;
     url: string;
@@ -42,6 +45,8 @@ interface SocketContextType {
   stopVideo: (videoId: string) => void;
   nextVideo: (currentVideoId: string) => void;
   previousVideo: (currentVideoId: string) => void;
+  toggleFullscreen: (videoId: string, fullscreen: boolean) => void;
+  toggleRepeat: (videoId: string, repeat: boolean) => void;
   // Child methods
   sendControlAck: (action: string, videoId: string, status: 'success' | 'error') => void;
   sendPlaybackStatus: (status: PlaybackStatus) => void;
@@ -72,6 +77,8 @@ const SocketContext = createContext<SocketContextType>({
   stopVideo: () => {},
   nextVideo: () => {},
   previousVideo: () => {},
+  toggleFullscreen: () => {},
+  toggleRepeat: () => {},
   sendControlAck: () => {},
   sendPlaybackStatus: () => {},
   onVideoControl: () => {},
@@ -141,7 +148,8 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       socket.disconnect();
     }
 
-    const newSocket = io('http://192.168.100.17:8888', {
+    const BACKEND_URL = Constants.expoConfig?.extra?.BACKEND_URL || 'https://zeyadhome8888.primewave1.click';
+    const newSocket = io(BACKEND_URL, {
       auth: {
         token: token,
         userId: user?._id,
@@ -365,6 +373,18 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     }
   };
 
+  const toggleFullscreen = (videoId: string, fullscreen: boolean) => {
+    if (socket && user?.role === 'parent') {
+      socket.emit('video_fullscreen', { videoId, fullscreen });
+    }
+  };
+
+  const toggleRepeat = (videoId: string, repeat: boolean) => {
+    if (socket && user?.role === 'parent') {
+      socket.emit('video_repeat', { videoId, repeat });
+    }
+  };
+
   // Child methods
   const sendControlAck = (action: string, videoId: string, status: 'success' | 'error') => {
     if (socket && user?.role === 'child') {
@@ -425,6 +445,8 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       stopVideo,
       nextVideo,
       previousVideo,
+      toggleFullscreen,
+      toggleRepeat,
       sendControlAck,
       sendPlaybackStatus,
       onVideoControl,

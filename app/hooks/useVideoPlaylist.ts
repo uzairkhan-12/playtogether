@@ -223,29 +223,43 @@ export const useVideoPlaylist = ({
   }, [playbackStatus.isPlaying, pauseVideo, resumeVideo]);
 
   const toggleFullscreen = useCallback(() => {
-    if (!canControl || !currentVideo) return;
+    console.log('🎯 toggleFullscreen called', { canControl, currentVideo: !!currentVideo, isFullscreen });
+    if (!canControl || !currentVideo) {
+      console.log('❌ Cannot toggle fullscreen - not connected or no video');
+      return;
+    }
+    
+    const newFullscreenState = !isFullscreen;
+    console.log('📡 Emitting video_fullscreen event', { videoId: currentVideo._id, fullscreen: newFullscreenState });
     
     socket.emit('video_fullscreen', {
       videoId: currentVideo._id,
-      fullscreen: !isFullscreen
+      fullscreen: newFullscreenState
     });
     
-    setIsFullscreen(!isFullscreen);
-    console.log(`📱 Toggling fullscreen to: ${!isFullscreen}`);
+    setIsFullscreen(newFullscreenState);
+    console.log(`📱 Toggling fullscreen to: ${newFullscreenState}`);
   }, [canControl, currentVideo, socket, isFullscreen]);
 
   const toggleRepeat = useCallback(() => {
-    if (!canControl) return;
+    console.log('🎯 toggleRepeat called', { canControl, currentVideo: !!currentVideo, isRepeat });
+    if (!canControl) {
+      console.log('❌ Cannot toggle repeat - not connected');
+      return;
+    }
     
     const newRepeatState = !isRepeat;
     setIsRepeat(newRepeatState);
     
     // Emit repeat state to child device
     if (socket && currentVideo) {
+      console.log('📡 Emitting video_repeat event', { videoId: currentVideo._id, repeat: newRepeatState });
       socket.emit('video_repeat', {
         videoId: currentVideo._id,
         repeat: newRepeatState
       });
+    } else {
+      console.log('❌ Cannot emit repeat - no socket or no current video');
     }
     
     console.log(`🔁 Toggling repeat to: ${newRepeatState}`);

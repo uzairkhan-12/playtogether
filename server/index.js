@@ -141,6 +141,5 @@ server.listen(PORT, '0.0.0.0', () => {
     if (localIp !== 'localhost') break;
   }
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🔗 Accessible on the LAN at: http://${localIp}:${PORT}`);
   console.log(`🔗 Also accessible locally at: http://localhost:${PORT}`);
 });
