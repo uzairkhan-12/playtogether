@@ -4,8 +4,8 @@ import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 
 // API configuration
-const API_BASE_URL = 'http://192.168.100.216:8888/api';
-const SERVER_BASE_URL = 'http://192.168.100.216:8888';
+const API_BASE_URL = 'http://192.168.100.17:8888/api';
+const SERVER_BASE_URL = 'http://192.168.100.17:8888';
 
 // Types
 interface User {

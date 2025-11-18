@@ -7,7 +7,8 @@ import {
   StyleSheet, 
   Dimensions, 
   ActivityIndicator,
-  StatusBar 
+  StatusBar,
+  AppState
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -15,7 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSocket } from '@/contexts/SocketContext';
 import { useRouter } from 'expo-router';
-import * as ScreenOrientation from 'expo-screen-orientation';
+// import * as ScreenOrientation from 'expo-screen-orientation';
 
 interface VideoData {
   _id: string;
@@ -62,23 +63,25 @@ export default function VideoPlayerScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [showControls, setShowControls] = useState(true);
+  const [showControls, setShowControls] = useState(false);
   const [volume, setVolume] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
   const [parentConnected, setParentConnected] = useState(false);
   const [isLandscape, setIsLandscape] = useState(false);
   const [screenDimensions, setScreenDimensions] = useState(Dimensions.get('window'));
+  const [isRepeat, setIsRepeat] = useState(false);
 
   const controlsTimeoutRef = useRef<any>(null);
   const pendingPlayRef = useRef(false);
+  const repeatInProgressRef = useRef(false);
 
   // Initialize player with video source - only when we have a valid source
   const player = useVideoPlayer(videoSource || null, (p) => {
     console.log({videoSource})
     if (!videoSource) return; // Don't setup player if no video source
     
-    p.loop = false;
+    p.loop = isRepeat; // Set loop based on repeat state
     p.volume = volume;
     // Add playback event listeners
     p.addListener('statusChange', (payload) => {
@@ -124,34 +127,63 @@ export default function VideoPlayerScreen() {
     return () => subscription?.remove();
   }, []);
 
-  // Screen orientation management
+  // Screen orientation management - start in portrait, only change via fullscreen toggle
   useEffect(() => {
     if (currentVideo && videoSource) {
-      // Allow all orientations when video is playing
-      ScreenOrientation.unlockAsync();
+      // Start video in portrait mode - only allow fullscreen via parent control
+      // ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
     } else {
       // Lock to portrait when no video
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+      // ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
     }
 
     return () => {
       // Reset to portrait when component unmounts
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+      // ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
     };
   }, [currentVideo, videoSource]);
 
-  // Toggle fullscreen rotation
-  const toggleFullscreen = async () => {
-    try {
-      if (isLandscape) {
-        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-      } else {
-        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-      }
-    } catch (error) {
-      console.log('Rotation error:', error);
+  // Update player loop property when repeat state changes
+  useEffect(() => {
+    if (player) {
+      player.loop = isRepeat;
+      console.log('🔁 Updated player loop property:', isRepeat);
     }
-  };
+  }, [player, isRepeat]);
+
+  // Reset orientation when no video is playing
+  useEffect(() => {
+    if (!currentVideo || !videoSource) {
+      console.log('📱 No video playing - resetting to portrait orientation');
+      // ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+    }
+  }, [currentVideo, videoSource]);
+
+  // Reset orientation when user navigates away (becomes parent or loses focus)
+  useEffect(() => {
+    if (user?.role === 'parent') {
+      console.log('📱 User is parent - ensuring portrait orientation');
+      // ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+    }
+  }, [user?.role]);
+
+  // Handle app state changes (background/foreground)
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: string) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        console.log('📱 App going to background - resetting to portrait');
+        // ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
+    return () => {
+      subscription?.remove();
+    };
+  }, []);
+
+
 
   // Monitor playback status
   useEffect(() => {
@@ -181,8 +213,12 @@ export default function VideoPlayerScreen() {
           const hasEnded = currentDuration > 0 && newCurrentTime >= currentDuration;
           
           if (hasEnded || (isNearEnd && !player.playing)) {
-            setIsPlaying(false);
-            setShowControls(true);
+            if (!isRepeat) {
+              // Only pause and show controls if repeat is disabled
+              // If repeat is enabled, player.loop will handle the restart automatically
+              setIsPlaying(false);
+              // Controls remain hidden - user must tap screen to see them
+            }
           } else {
             // Handle pending play request
             if (pendingPlayRef.current) {
@@ -208,7 +244,7 @@ export default function VideoPlayerScreen() {
           // Video ended
           if (isPlaying) {
             setIsPlaying(false);
-            setShowControls(true);
+            // Controls remain hidden - user must tap screen to see them
           }
         }
       } catch (err) {
@@ -274,15 +310,15 @@ export default function VideoPlayerScreen() {
         switch (data.action) {
           case 'play':
             if (data.video) {
-              // New video to play
-              if (!currentVideo || data.video._id !== currentVideo._id) {
-                console.log('🎬 Loading new video:', data.video.title);
-                setIsLoading(true);
-                setCurrentVideo(data.video);
-                pendingPlayRef.current = true;
-                setIsPlaying(false);
-                
-                // Set duration from database (more reliable than player.duration)
+                // New video to play
+                if (!currentVideo || data.video._id !== currentVideo._id) {
+                  console.log('🎬 Loading new video:', data.video.title);
+                  setIsLoading(true);
+                  setCurrentVideo(data.video);
+                  pendingPlayRef.current = true;
+                  setIsPlaying(false);
+                  // Reset repeat flag for new video
+                  repeatInProgressRef.current = false;                // Set duration from database (more reliable than player.duration)
                 if (data.video.duration && data.video.duration > 0) {
                   setDuration(data.video.duration);
                 }
@@ -328,7 +364,7 @@ export default function VideoPlayerScreen() {
               if (player && player.playing) {
                 player.pause();
                 setIsPlaying(false);
-                setShowControls(true);
+                // Controls remain hidden - user must tap screen to see them
               }
             } catch (err) {
               console.log('Pause failed:', err);
@@ -379,7 +415,33 @@ export default function VideoPlayerScreen() {
             setVideoSource('');
             setIsPlaying(false);
             setCurrentTime(0);
-            setShowControls(true);
+            // Reset orientation to portrait when video stops
+            // ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+            // Controls remain hidden after stop
+            break;
+
+          case 'fullscreen':
+            console.log('📱 Toggling fullscreen:', data.fullscreen);
+            try {
+              if (data.fullscreen) {
+                // await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+              } else {
+                // await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+              }
+            } catch (err) {
+              console.log('Fullscreen toggle failed:', err);
+            }
+            break;
+
+          case 'repeat':
+            console.log('🔁 Setting repeat mode:', data.repeat);
+            setIsRepeat(data.repeat);
+            // Update player loop property
+            if (player) {
+              player.loop = data.repeat;
+            }
+            // Reset repeat flag when mode changes
+            repeatInProgressRef.current = false;
             break;
         }
       } catch (err) {
@@ -455,6 +517,8 @@ export default function VideoPlayerScreen() {
       if (controlsTimeoutRef.current) {
         clearTimeout(controlsTimeoutRef.current);
       }
+      // Ensure screen returns to portrait when component unmounts
+      // ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
     };
   }, []);
 
@@ -490,7 +554,16 @@ export default function VideoPlayerScreen() {
   };
 
   const handleScreenPress = () => {
-    resetControlsTimeout();
+    if (showControls) {
+      // If controls are visible, hide them immediately
+      setShowControls(false);
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+    } else {
+      // If controls are hidden, show them and start auto-hide timer
+      resetControlsTimeout();
+    }
   };
 
   const handleLogout = () => {
@@ -620,22 +693,7 @@ export default function VideoPlayerScreen() {
             </TouchableOpacity>
           )}
 
-          {/* Rotation Button */}
-          {showControls && !isLoading && (
-            <TouchableOpacity
-              style={styles.rotateButton}
-              onPress={toggleFullscreen}
-              activeOpacity={0.8}
-            >
-              <View style={styles.rotateIconWrapper}>
-                <Ionicons 
-                  name={isLandscape ? "contract" : "expand"} 
-                  size={20} 
-                  color="#fff" 
-                />
-              </View>
-            </TouchableOpacity>
-          )}
+
 
           {/* Video Info Overlay */}
           {showControls && (
@@ -930,27 +988,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  rotateButton: {
-    position: 'absolute',
-    top: 50,
-    right: 16,
-    zIndex: 1000,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  rotateIconWrapper: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-  },
+
   topGradient: {
     position: 'absolute',
     top: 0,

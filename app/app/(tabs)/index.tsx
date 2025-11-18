@@ -78,6 +78,8 @@ export default function HomeScreen() {
     canControl,
     hasPrevious,
     hasNext,
+    isFullscreen,
+    isRepeat,
     playVideo,
     pauseVideo,
     resumeVideo,
@@ -86,6 +88,8 @@ export default function HomeScreen() {
     playPrevious,
     changeVolume,
     togglePlayPause,
+    toggleFullscreen,
+    toggleRepeat,
   } = useVideoPlaylist({
     videos,
     socket,
@@ -400,6 +404,10 @@ export default function HomeScreen() {
           onNext={playNext}
           onPrevious={playPrevious}
           onVolumeChange={changeVolume}
+          onToggleFullscreen={toggleFullscreen}
+          isFullscreen={isFullscreen}
+          onToggleRepeat={toggleRepeat}
+          isRepeat={isRepeat}
           formatTime={formatTime}
           formatFileSize={formatFileSize}
         />

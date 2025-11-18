@@ -41,6 +41,10 @@ interface VideoControlPanelProps {
   onNext: () => void;
   onPrevious: () => void;
   onVolumeChange: (volume: number) => void;
+  onToggleFullscreen?: () => void;
+  isFullscreen?: boolean;
+  onToggleRepeat?: () => void;
+  isRepeat?: boolean;
   formatTime: (seconds: number) => string;
   formatFileSize: (bytes: number) => string;
 }
@@ -57,6 +61,10 @@ const VideoControlPanel: React.FC<VideoControlPanelProps> = ({
   onNext,
   onPrevious,
   onVolumeChange,
+  onToggleFullscreen,
+  isFullscreen,
+  onToggleRepeat,
+  isRepeat,
   formatTime,
   formatFileSize,
 }) => {
@@ -94,7 +102,6 @@ const VideoControlPanel: React.FC<VideoControlPanelProps> = ({
         isPlaying={playbackStatus.isPlaying}
         currentTime={playbackStatus.currentTime}
         duration={playbackStatus.duration}
-        formatTime={formatTime}
       />
 
       {/* Playback Controls */}
@@ -107,6 +114,10 @@ const VideoControlPanel: React.FC<VideoControlPanelProps> = ({
         onNext={onNext}
         hasPrevious={hasPrevious}
         hasNext={hasNext}
+        onToggleFullscreen={onToggleFullscreen}
+        isFullscreen={isFullscreen}
+        onToggleRepeat={onToggleRepeat}
+        isRepeat={isRepeat}
       />
 
       {/* Volume Control */}

@@ -9,7 +9,6 @@ interface PlaybackStatusProps {
   isPlaying: boolean;
   currentTime: number;
   duration: number;
-  formatTime: (seconds: number) => string;
 }
 
 const PlaybackStatus: React.FC<PlaybackStatusProps> = ({
@@ -18,7 +17,6 @@ const PlaybackStatus: React.FC<PlaybackStatusProps> = ({
   isPlaying,
   currentTime,
   duration,
-  formatTime,
 }) => {
   const { theme } = useTheme();
 
@@ -92,10 +90,6 @@ const PlaybackStatus: React.FC<PlaybackStatusProps> = ({
         </View>
       </View>
 
-      {/* Time Display */}
-      <Text style={[styles.timeText, { color: theme.text }]}>
-        {formatTime(currentTime)} / {formatTime(duration)}
-      </Text>
     </View>
   );
 };
@@ -109,7 +103,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     width: '100%',
-    marginBottom: 8,
   },
   statusItem: {
     flexDirection: 'row',
@@ -119,11 +112,6 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontWeight: '500',
-  },
-  timeText: {
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
   },
 });
 

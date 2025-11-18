@@ -447,6 +447,35 @@ const setupVideoControlEvents = (socket, io) => {
         socket.emit("error", { message: "Failed to load previous video" });
       }
     });
+    // Fullscreen toggle
+    socket.on("video_fullscreen", (data) => {
+      const { videoId, fullscreen } = data;
+      const roomId = `family_${user._id}`;
+      
+      console.log(`📱 Parent ${user.name} toggling fullscreen: ${fullscreen}`);
+      
+      socket.to(roomId).emit("video_control", {
+        action: "fullscreen",
+        videoId,
+        fullscreen,
+        timestamp: new Date()
+      });
+    });
+
+    // Repeat toggle
+    socket.on("video_repeat", (data) => {
+      const { videoId, repeat } = data;
+      const roomId = `family_${user._id}`;
+      
+      console.log(`🔁 Parent ${user.name} toggling repeat: ${repeat}`);
+      
+      socket.to(roomId).emit("video_control", {
+        action: "repeat",
+        videoId,
+        repeat,
+        timestamp: new Date()
+      });
+    });
   }
 
   // Child acknowledgment events

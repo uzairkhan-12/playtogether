@@ -12,6 +12,10 @@ interface PlaybackControlsProps {
   onNext: () => void;
   hasPrevious: boolean;
   hasNext: boolean;
+  onToggleFullscreen?: () => void;
+  isFullscreen?: boolean;
+  onToggleRepeat?: () => void;
+  isRepeat?: boolean;
 }
 
 const PlaybackControls: React.FC<PlaybackControlsProps> = ({
@@ -23,6 +27,10 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
   onNext,
   hasPrevious,
   hasNext,
+  onToggleFullscreen,
+  isFullscreen = false,
+  onToggleRepeat,
+  isRepeat = false,
 }) => {
   const { theme } = useTheme();
 
@@ -75,6 +83,39 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
       >
         <Ionicons name="play-skip-forward" size={24} color="#fff" />
       </TouchableOpacity>
+
+      {/* Repeat Button */}
+      {onToggleRepeat && (
+        <TouchableOpacity
+          style={[
+            buttonStyle(true),
+            isRepeat && { backgroundColor: theme.accent || theme.primary }
+          ]}
+          onPress={onToggleRepeat}
+          disabled={!canPlay}
+        >
+          <Ionicons 
+            name="repeat" 
+            size={24} 
+            color="#fff" 
+          />
+        </TouchableOpacity>
+      )}
+
+      {/* Fullscreen Button */}
+      {onToggleFullscreen && (
+        <TouchableOpacity
+          style={buttonStyle(true)}
+          onPress={onToggleFullscreen}
+          disabled={!canPlay}
+        >
+          <Ionicons 
+            name={isFullscreen ? "contract" : "expand"} 
+            size={24} 
+            color="#fff" 
+          />
+        </TouchableOpacity>
+      )}
     </View>
   );
 };

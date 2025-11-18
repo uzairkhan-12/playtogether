@@ -141,7 +141,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       socket.disconnect();
     }
 
-    const newSocket = io('http://192.168.100.216:8888', {
+    const newSocket = io('http://192.168.100.17:8888', {
       auth: {
         token: token,
         userId: user?._id,

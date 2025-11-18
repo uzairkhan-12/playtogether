@@ -738,10 +738,13 @@ export const deleteVideo = async (req, res) => {
         }
       }
       if (video.thumbnailUrl) {
-        const thumbLocal = join(process.cwd(), 'uploads', 'thumbnails', `${video.storageId}.jpg`);
-        if (existsSync(thumbLocal)) {
-          await fsPromises.unlink(thumbLocal);
-          console.log('🗑️ Deleted local thumbnail:', thumbLocal);
+        const thumbnailFilename = video.thumbnailUrl.split('/').pop();
+        if (thumbnailFilename) {
+          const thumbLocal = join(process.cwd(), 'uploads', 'thumbnails', thumbnailFilename);
+          if (existsSync(thumbLocal)) {
+            await fsPromises.unlink(thumbLocal);
+            console.log('🗑️ Deleted local thumbnail:', thumbLocal);
+          }
         }
       }
     } catch (fileDeleteErr) {

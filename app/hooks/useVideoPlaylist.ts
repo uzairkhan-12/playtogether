@@ -51,6 +51,8 @@ export const useVideoPlaylist = ({
   });
   const [volume, setVolume] = useState(100);
   const [autoPlayNext, setAutoPlayNext] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isRepeat, setIsRepeat] = useState(false);
 
   // Update current index when video changes
   useEffect(() => {
@@ -62,26 +64,7 @@ export const useVideoPlaylist = ({
     }
   }, [currentVideo, videos]);
 
-  // Auto-play next video when current video ends
-  useEffect(() => {
-    if (
-      autoPlayNext &&
-      playbackStatus.duration > 0 &&
-      playbackStatus.currentTime >= playbackStatus.duration - 2 && // 2 seconds before end
-      currentIndex < videos.length - 1 &&
-      currentVideo // Make sure we have a current video
-    ) {
-      console.log('🎵 Auto-playing next video...', {
-        currentTime: playbackStatus.currentTime,
-        duration: playbackStatus.duration,
-        currentIndex,
-        totalVideos: videos.length
-      });
-      setTimeout(() => {
-        playNext();
-      }, 500); // Smaller delay for smoother transition
-    }
-  }, [playbackStatus.currentTime, playbackStatus.duration, currentIndex, videos.length, autoPlayNext, currentVideo]);
+  // Removed auto-play next functionality - only manual control now
 
   // Socket event listeners
   useEffect(() => {
@@ -104,17 +87,7 @@ export const useVideoPlaylist = ({
       
       if (hasVideoEnded && currentVideo) {
         console.log('🎬 Video ended:', currentVideo.title);
-        
-        // Auto-play next video if available
-        const nextIndex = currentIndex + 1;
-        if (nextIndex < videos.length) {
-          console.log('⏭️ Auto-playing next video...');
-          setTimeout(() => {
-            playNext();
-          }, 2000); // 2 second delay before auto-playing next
-        } else {
-          console.log('📝 Playlist completed');
-        }
+        console.log('📝 Video ended - no auto-play, only manual controls or repeat on child device');
       }
 
     };
@@ -143,6 +116,7 @@ export const useVideoPlaylist = ({
     socket.emit('video_play', { videoId: video._id, currentTime: 0 });
     setCurrentVideo(video);
     setVolume(100);
+    setIsFullscreen(false); // Always start in portrait mode
     setPlaybackStatus(prev => ({ 
       ...prev, 
       duration: video.duration, 
@@ -185,6 +159,7 @@ export const useVideoPlaylist = ({
     
     socket.emit('video_stop', { videoId: currentVideo._id });
     setCurrentVideo(null);
+    setIsFullscreen(false); // Reset fullscreen state when video stops
     setPlaybackStatus({
       isPlaying: false,
       currentTime: 0,
@@ -247,6 +222,35 @@ export const useVideoPlaylist = ({
     }
   }, [playbackStatus.isPlaying, pauseVideo, resumeVideo]);
 
+  const toggleFullscreen = useCallback(() => {
+    if (!canControl || !currentVideo) return;
+    
+    socket.emit('video_fullscreen', {
+      videoId: currentVideo._id,
+      fullscreen: !isFullscreen
+    });
+    
+    setIsFullscreen(!isFullscreen);
+    console.log(`📱 Toggling fullscreen to: ${!isFullscreen}`);
+  }, [canControl, currentVideo, socket, isFullscreen]);
+
+  const toggleRepeat = useCallback(() => {
+    if (!canControl) return;
+    
+    const newRepeatState = !isRepeat;
+    setIsRepeat(newRepeatState);
+    
+    // Emit repeat state to child device
+    if (socket && currentVideo) {
+      socket.emit('video_repeat', {
+        videoId: currentVideo._id,
+        repeat: newRepeatState
+      });
+    }
+    
+    console.log(`🔁 Toggling repeat to: ${newRepeatState}`);
+  }, [canControl, isRepeat, socket, currentVideo]);
+
   return {
     // State
     currentVideo,
@@ -255,6 +259,8 @@ export const useVideoPlaylist = ({
     volume,
     autoPlayNext,
     canControl,
+    isFullscreen,
+    isRepeat,
     
     // Computed
     hasPrevious: currentIndex > 0,
@@ -270,6 +276,8 @@ export const useVideoPlaylist = ({
     changeVolume,
     seekVideo,
     togglePlayPause,
+    toggleFullscreen,
+    toggleRepeat,
     setAutoPlayNext,
   };
 };
