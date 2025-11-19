@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, useWindowDimensions } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import PlaybackControls from './PlaybackControls';
 import VolumeControl from './VolumeControl';
@@ -69,6 +69,11 @@ const VideoControlPanel: React.FC<VideoControlPanelProps> = ({
   formatFileSize,
 }) => {
   const { theme } = useTheme();
+  const { width } = useWindowDimensions();
+
+  const isMobile = width < 768;
+  const panelMargin = isMobile ? 12 : 20;
+  const panelPadding = isMobile ? 16 : 20;
 
   const canControl = isConnected && childConnected;
   const currentIndex = videos.findIndex(video => video._id === currentVideo._id);
@@ -78,7 +83,9 @@ const VideoControlPanel: React.FC<VideoControlPanelProps> = ({
   return (
     <View style={[styles.controlPanel, { 
       backgroundColor: theme.card,
-      opacity: canControl ? 1 : 0.6 
+      opacity: canControl ? 1 : 0.6,
+      margin: panelMargin,
+      padding: panelPadding,
     }]}>
       {/* Header */}
       <Text style={[styles.controlTitle, { color: theme.text }]}>
@@ -132,8 +139,6 @@ const VideoControlPanel: React.FC<VideoControlPanelProps> = ({
 
 const styles = StyleSheet.create({
   controlPanel: {
-    margin: 20,
-    padding: 20,
     borderRadius: 16,
     elevation: 4,
     shadowColor: '#000',

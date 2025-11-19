@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Modal, TextInput, ActivityIndicator, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Modal, TextInput, ActivityIndicator, Image, useWindowDimensions } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSocket } from '@/contexts/SocketContext';
@@ -335,14 +335,15 @@ export default function HomeScreen() {
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Header */}
-      <View style={styles.header}>
+      {/** Responsive header: stack on narrow screens */}
+      <View style={[styles.header, (useWindowDimensions().width < 600) && { flexDirection: 'column', alignItems: 'flex-start' }]}>
         <View>
           <Text style={[styles.title, { color: theme.text }]}>Parent Dashboard</Text>
           <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
             Welcome, {user?.name}
           </Text>
         </View>
-        <View style={styles.headerButtons}>
+  <View style={[styles.headerButtons, (useWindowDimensions().width < 600) && { marginTop: 12 }] }>
           <View style={styles.connectionStatus}>
             <View style={styles.statusIcon}>
               <Ionicons 

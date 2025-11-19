@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   StyleSheet,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -83,6 +84,20 @@ const VideosSection: React.FC<VideosSectionProps> = ({
     return `${serverBaseUrl}/uploads/thumbnails/${relativePath}`;
   };
 
+  const { width } = useWindowDimensions();
+
+  // Responsive grid calculation
+  const horizontalPadding = 40; // matches parent paddingHorizontal: 20
+  const gap = 12;
+  let numColumns = 1;
+  if (width >= 1100) numColumns = 4;
+  else if (width >= 800) numColumns = 3;
+  else if (width >= 600) numColumns = 2;
+  else numColumns = 1;
+
+  const cardWidth = Math.floor((width - horizontalPadding - (numColumns - 1) * gap) / numColumns);
+  const thumbnailHeight = Math.round(cardWidth * 0.56);
+
   return (
     <View style={styles.videosSection}>
       <View style={styles.sectionHeader}>
@@ -106,13 +121,19 @@ const VideosSection: React.FC<VideosSectionProps> = ({
           showsVerticalScrollIndicator={true}
           contentContainerStyle={styles.scrollContainer}
         >
-          <View style={styles.videosGrid}>
-            {videos.map((video) => (
+          <View style={[styles.videosGrid, { justifyContent: 'flex-start' }] }>
+            {videos.map((video, idx) => (
               <TouchableOpacity
                 key={video._id}
-                style={[styles.videoGridCard, { 
-                  opacity: childConnected ? 1 : 0.7
-                }]}
+                style={[
+                  styles.videoGridCard,
+                  { 
+                    width: cardWidth,
+                    marginRight: (idx % numColumns) === (numColumns - 1) ? 0 : gap,
+                    marginBottom: 12,
+                    opacity: childConnected ? 1 : 0.7
+                  }
+                ]}
                 onPress={() => onPlayVideo(video)}
                 onLongPress={() => {
                   // Show delete button on long press
@@ -120,7 +141,7 @@ const VideosSection: React.FC<VideosSectionProps> = ({
                 }}
                 disabled={!childConnected}
               >
-                <View style={styles.videoGridThumbnail}>
+                <View style={[styles.videoGridThumbnail, { height: thumbnailHeight }] }>
                   {video.thumbnailUrl ? (
                     <Image 
                       source={{ 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 
@@ -15,7 +15,9 @@ const VolumeControl: React.FC<VolumeControlProps> = ({
   onVolumeChange,
 }) => {
   const { theme } = useTheme();
+  const { width } = useWindowDimensions();
 
+  const isMobile = width < 768;
   const quickVolumeButtons = [0, 25, 50, 75, 100];
 
   return (
@@ -60,14 +62,18 @@ const VolumeControl: React.FC<VolumeControlProps> = ({
       </View>
 
       {/* Quick Volume Buttons */}
-      <View style={styles.quickVolume}>
+      <View style={[styles.quickVolume, isMobile && styles.quickVolumeMobile]}>
         {quickVolumeButtons.map((vol) => (
           <TouchableOpacity
             key={vol}
-            style={[styles.volumeButton, { 
-              backgroundColor: volume === vol ? theme.primary : theme.border,
-              opacity: canControl ? 1 : 0.5
-            }]}
+            style={[
+              styles.volumeButton, 
+              isMobile && styles.volumeButtonMobile,
+              { 
+                backgroundColor: volume === vol ? theme.primary : theme.border,
+                opacity: canControl ? 1 : 0.5
+              }
+            ]}
             onPress={() => onVolumeChange(vol)}
             disabled={!canControl}
           >
@@ -131,12 +137,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
+  quickVolumeMobile: {
+    gap: 4,
+    flexWrap: 'wrap',
+  },
   volumeButton: {
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 16,
     minWidth: 50,
     alignItems: 'center',
+  },
+  volumeButtonMobile: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    minWidth: 42,
   },
   volumeButtonText: {
     fontSize: 12,
